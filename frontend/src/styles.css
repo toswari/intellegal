@@ -768,6 +768,42 @@ th {
   gap: 0.5rem;
 }
 
+.search-view-panel {
+  margin-top: 0.5rem;
+}
+
+.search-results-grid {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.search-result-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: #ffffff;
+}
+
+.search-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.search-section-hint {
+  margin: 0.35rem 0 0.4rem;
+  color: #264f86;
+  font-weight: 700;
+}
+
+.search-result-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 .contract-view {
   margin-top: 1rem;
 }

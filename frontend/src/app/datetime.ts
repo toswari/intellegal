@@ -14,5 +14,14 @@ export function formatEuropeanDateTime(input: string): string {
     return input;
   }
 
-  return europeanDateTimeFormatter.format(date);
+  const parts = europeanDateTimeFormatter.formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  const day = part("day");
+  const month = part("month");
+  const year = part("year");
+  const hour = part("hour");
+  const minute = part("minute");
+  const second = part("second");
+
+  return `${day}.${month}.${year} ${hour}:${minute}:${second}`;
 }

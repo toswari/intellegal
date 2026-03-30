@@ -9,6 +9,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { to: "/", label: "Dashboard", end: true },
+  { to: "/search", label: "Search" },
   { to: "/contracts", label: "Contracts" },
   { to: "/checks", label: "Checks" },
   { to: "/results", label: "Results" },
@@ -18,22 +19,22 @@ const navItems: NavItem[] = [
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [semanticQuery, setSemanticQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    const query = new URLSearchParams(location.search).get("semanticQuery") ?? "";
-    setSemanticQuery(query);
+    const query = new URLSearchParams(location.search).get("q") ?? "";
+    setSearchQuery(query);
   }, [location.search]);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const query = semanticQuery.trim();
+    const query = searchQuery.trim();
     if (query.length < 2) {
       return;
     }
     const params = new URLSearchParams();
-    params.set("semanticQuery", query);
-    navigate(`/contracts?${params.toString()}`);
+    params.set("q", query);
+    navigate(`/search?${params.toString()}`);
   };
 
   const isContractDetailRoute = /^\/contracts\/[^/]+\/edit$/.test(location.pathname);
@@ -66,12 +67,12 @@ export function AppShell() {
               <form className="global-search" onSubmit={submitSearch}>
                 <div className="global-search-field">
                   <input
-                    value={semanticQuery}
-                    onChange={(event) => setSemanticQuery(event.target.value)}
-                    placeholder="Semantic search..."
-                    aria-label="Semantic contract search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search contracts..."
+                    aria-label="Contract search"
                   />
-                  <button type="submit" className="icon-button inline-icon" aria-label="Run semantic search" title="Search">
+                  <button type="submit" className="icon-button inline-icon" aria-label="Run search" title="Search">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
                       <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
                       <line x1="16.65" y1="16.65" x2="21" y2="21" stroke="currentColor" strokeWidth="2" />

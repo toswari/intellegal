@@ -167,13 +167,37 @@ class QdrantService:
             return []
 
         target_documents = {doc_id for doc_id in (document_ids or []) if doc_id}
-        raw_results = self._client.search(
-            collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=max(1, limit * 4),
-            with_payload=True,
-            with_vectors=False,
-        )
+        search_limit = max(1, limit * 4)
+        raw_results: list[Any]
+        if hasattr(self._client, "query_points"):
+            try:
+                # qdrant-client >=1.17 exposes vector search via query_points().
+                response = self._client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector,
+                    limit=search_limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                raw_results = list(getattr(response, "points", []) or [])
+            except AttributeError:
+                # Some custom wrappers may define query_points but not implement it.
+                raw_results = self._client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    limit=search_limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+        else:
+            # Backward compatibility with older qdrant-client versions.
+            raw_results = self._client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=search_limit,
+                with_payload=True,
+                with_vectors=False,
+            )
 
         matches: list[dict[str, Any]] = []
         for result in raw_results:

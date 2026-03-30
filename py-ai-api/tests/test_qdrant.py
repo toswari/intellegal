@@ -35,6 +35,27 @@ class _FakeQdrantClient:
     def upsert(self, **kwargs: object) -> None:
         self.calls.append(("upsert", kwargs))
 
+    def query_points(self, **kwargs: object):
+        self.calls.append(("query_points", kwargs))
+
+        class _Result:
+            score = 0.81
+            payload = {
+                "document_id": "doc-1",
+                "chunk_id": 4,
+                "page_number": 2,
+                "text": "Payment terms should be net 30.",
+            }
+        class _Response:
+            points = [_Result()]
+
+        return _Response()
+
+
+class _LegacySearchQdrantClient(_FakeQdrantClient):
+    def query_points(self, **kwargs: object):  # type: ignore[override]
+        raise AttributeError("query_points is not available")
+
     def search(self, **kwargs: object):
         self.calls.append(("search", kwargs))
 
@@ -104,5 +125,17 @@ def test_search_chunks_returns_filtered_payload() -> None:
     assert results[0]["document_id"] == "doc-1"
     assert results[0]["chunk_id"] == "4"
     assert results[0]["page_number"] == 2
+    call_names = [name for name, _ in client.calls]
+    assert "query_points" in call_names
+
+
+def test_search_chunks_falls_back_to_legacy_search_api() -> None:
+    client = _LegacySearchQdrantClient()
+    service = QdrantService(Settings(), client=client)
+
+    results = service.search_chunks(query_vector=[0.1, 0.2], document_ids=["doc-1"], limit=5)
+
+    assert len(results) == 1
+    assert results[0]["document_id"] == "doc-1"
     call_names = [name for name, _ in client.calls]
     assert "search" in call_names

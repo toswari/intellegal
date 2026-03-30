@@ -10,6 +10,7 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { NewContractPage } from "../pages/NewContractPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ResultsPage } from "../pages/ResultsPage";
+import { SearchPage } from "../pages/SearchPage";
 
 export const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <DashboardPage /> },
+      { path: "search", element: <SearchPage /> },
       { path: "contracts", element: <ContractsPage /> },
       { path: "contracts/new", element: <NewContractPage /> },
       { path: "contracts/files/:documentId", element: <ContractViewPage /> },

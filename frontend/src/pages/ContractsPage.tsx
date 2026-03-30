@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   apiClient,
   type ContractResponse,
-  type ContractSearchResultItem,
   type DocumentResponse,
   type DocumentStatus
 } from "../api/client";
@@ -17,18 +16,14 @@ type Filters = {
 };
 
 export function ContractsPage() {
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>({ status: "all", sourceType: "all", query: "", tagsInput: "" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [contracts, setContracts] = useState<ContractResponse[]>([]);
   const [documents, setDocuments] = useState<DocumentResponse[]>([]);
+  const [selectedContractIds, setSelectedContractIds] = useState<string[]>([]);
   const [deletingContractId, setDeletingContractId] = useState<string | null>(null);
-  const [semanticSearching, setSemanticSearching] = useState(false);
-  const [semanticSearched, setSemanticSearched] = useState(false);
-  const [semanticSearchError, setSemanticSearchError] = useState<string | null>(null);
-  const [semanticResults, setSemanticResults] = useState<ContractSearchResultItem[]>([]);
-  const semanticQuery = searchParams.get("semanticQuery")?.trim() ?? "";
   const selectedTags = useMemo(
     () =>
       Array.from(
@@ -50,7 +45,6 @@ export function ContractsPage() {
       const response = await apiClient.listDocuments({
         status: filters.status === "all" ? undefined : filters.status,
         source_type: filters.sourceType === "all" ? undefined : filters.sourceType,
-        tags: selectedTags.length > 0 ? selectedTags : undefined,
         limit: 200,
         offset: 0
       });
@@ -70,19 +64,25 @@ export function ContractsPage() {
 
   const filteredContracts = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
+    const selectedTagSet = new Set(selectedTags.map((tag) => tag.toLowerCase()));
     const matchingContracts = new Set(
       documents.map((document) => document.contract_id).filter((id): id is string => Boolean(id))
     );
 
     return contracts.filter((contract) => {
-      if (
-        (filters.status !== "all" || filters.sourceType !== "all" || selectedTags.length > 0) &&
-        !matchingContracts.has(contract.id)
-      ) {
+      if ((filters.status !== "all" || filters.sourceType !== "all") && !matchingContracts.has(contract.id)) {
         return false;
       }
 
-      if (!query) return true;
+      if (selectedTagSet.size > 0) {
+        const hasMatchingTag = (contract.tags ?? []).some((tag) => selectedTagSet.has(tag.toLowerCase()));
+        if (!hasMatchingTag) {
+          return false;
+        }
+      }
+
+      if (query.length === 0) return true;
+
       return (
         contract.name.toLowerCase().includes(query) ||
         contract.id.toLowerCase().includes(query) ||
@@ -91,6 +91,76 @@ export function ContractsPage() {
       );
     });
   }, [contracts, documents, filters.query, filters.sourceType, filters.status, selectedTags]);
+
+  const representativeDocumentByContract = useMemo(() => {
+    const map = new Map<string, DocumentResponse>();
+    for (const document of documents) {
+      if (!document.contract_id) {
+        continue;
+      }
+      if (!map.has(document.contract_id)) {
+        map.set(document.contract_id, document);
+      }
+    }
+    return map;
+  }, [documents]);
+
+  const visibleContractIds = useMemo(() => new Set(filteredContracts.map((contract) => contract.id)), [filteredContracts]);
+
+  useEffect(() => {
+    setSelectedContractIds((prev) => prev.filter((id) => visibleContractIds.has(id)));
+  }, [visibleContractIds]);
+
+  const compareSelected = () => {
+    if (selectedContractIds.length !== 2) {
+      setError("Select exactly two contracts to compare.");
+      return;
+    }
+
+    const [leftContractId, rightContractId] = selectedContractIds;
+    const leftDocument = representativeDocumentByContract.get(leftContractId);
+    const rightDocument = representativeDocumentByContract.get(rightContractId);
+    if (!leftDocument || !rightDocument) {
+      setError("Cannot compare selected contracts because one of them has no comparable file.");
+      return;
+    }
+
+    setError(null);
+    const params = new URLSearchParams({ left: leftDocument.id, right: rightDocument.id });
+    navigate(`/contracts/compare?${params.toString()}`);
+  };
+
+  const toggleCompareSelection = (contractId: string) => {
+    setSelectedContractIds((prev) => {
+      if (prev.includes(contractId)) {
+        return prev.filter((id) => id !== contractId);
+      }
+      if (prev.length >= 2) {
+        return [prev[1], contractId];
+      }
+      return [...prev, contractId];
+    });
+  };
+
+  const compareWithSelected = (contractId: string) => {
+    const counterpartId = selectedContractIds.find((id) => id !== contractId);
+    if (!counterpartId) {
+      setError("Select another contract checkbox first, then click Compare.");
+      setSelectedContractIds([contractId]);
+      return;
+    }
+
+    const leftDocument = representativeDocumentByContract.get(counterpartId);
+    const rightDocument = representativeDocumentByContract.get(contractId);
+    if (!leftDocument || !rightDocument) {
+      setError("Cannot compare selected contracts because one of them has no comparable file.");
+      return;
+    }
+
+    setError(null);
+    const params = new URLSearchParams({ left: leftDocument.id, right: rightDocument.id });
+    navigate(`/contracts/compare?${params.toString()}`);
+  };
 
   const handleDelete = async (contract: ContractResponse) => {
     const confirmed = window.confirm(
@@ -114,68 +184,14 @@ export function ContractsPage() {
     }
   };
 
-  const sourceBadgeClass = (sourceType?: string) => {
-    if (sourceType === "upload") return "chip chip-source-upload";
-    if (sourceType === "repository") return "chip chip-source-repository";
-    if (sourceType === "api") return "chip chip-source-api";
-    return "chip chip-neutral";
-  };
-
-  const handleSemanticSearch = async (queryText: string) => {
-    const query = queryText.trim();
-    if (query.length < 2) {
-      setSemanticSearchError("Enter at least 2 characters for semantic search.");
-      return;
-    }
-
-    setSemanticSearching(true);
-    setSemanticSearched(true);
-    setSemanticSearchError(null);
-    try {
-      const visibleDocumentIds = documents.map((doc) => doc.id);
-      const response = await apiClient.searchContractSections({
-        query_text: query,
-        document_ids: visibleDocumentIds.length > 0 ? visibleDocumentIds : undefined,
-        limit: 12
-      });
-      setSemanticResults(response.items);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Semantic search failed.";
-      setSemanticSearchError(message);
-    } finally {
-      setSemanticSearching(false);
-    }
-  };
-
-  useEffect(() => {
-    if (loading) {
-      return;
-    }
-    if (semanticQuery.length < 2) {
-      setSemanticSearched(false);
-      setSemanticSearchError(null);
-      setSemanticResults([]);
-      return;
-    }
-    void handleSemanticSearch(semanticQuery);
-  }, [semanticQuery, loading, documents]);
-
-  const buildResultLink = (item: ContractSearchResultItem): string => {
-    const params = new URLSearchParams();
-    params.set("snippet", item.snippet_text.slice(0, 600));
-    params.set("page", String(item.page_number));
-    params.set("score", item.score.toFixed(3));
-    if (item.contract_id) {
-      params.set("contractId", item.contract_id);
-    }
-    return `/contracts/files/${encodeURIComponent(item.document_id)}?${params.toString()}`;
-  };
-
   return (
     <section className="page">
       <header className="page-header">
         <h2>Contracts</h2>
         <div className="page-actions">
+          <button type="button" className="secondary" onClick={compareSelected} disabled={selectedContractIds.length !== 2}>
+            Compare Selected
+          </button>
           <button type="button" className="secondary" onClick={() => void loadDocuments()}>
             Refresh
           </button>
@@ -186,41 +202,6 @@ export function ContractsPage() {
       </header>
 
       <section className="contracts-list">
-        {semanticSearchError ? <p className="error-text">{semanticSearchError}</p> : null}
-        {!semanticSearchError && semanticResults.length === 0 && semanticSearched && !semanticSearching ? (
-          <p className="muted">No semantic matches found for this query.</p>
-        ) : null}
-        {semanticResults.length > 0 ? (
-          <section className="panel">
-            <h3>Semantic Matches</h3>
-            <div className="semantic-search-results">
-              {semanticResults.map((item, index) => (
-                <article key={`${item.document_id}-${item.chunk_id ?? index}`} className="semantic-search-item">
-                  <div className="semantic-search-item-header">
-                    <strong>{item.filename}</strong>
-                    <span className="chip chip-neutral">Score {item.score.toFixed(3)}</span>
-                  </div>
-                  <p className="muted">
-                    Page {item.page_number} | Document <code>{item.document_id}</code>
-                  </p>
-                  <p>{item.snippet_text}</p>
-                  <Link className="button-link secondary" to={buildResultLink(item)}>
-                    Open Match
-                  </Link>
-                  {item.contract_id ? (
-                    <Link
-                      className="button-link secondary"
-                      to={`/contracts/${encodeURIComponent(item.contract_id)}/edit`}
-                    >
-                      Open Contract
-                    </Link>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <div className="filter-row">
           <label>
             Status
@@ -276,12 +257,11 @@ export function ContractsPage() {
             <table>
               <thead>
                 <tr>
+                  <th aria-label="Selection"></th>
                   <th>Name</th>
                   <th>Files</th>
-                  <th>Source</th>
                   <th>Tags</th>
                   <th>Created</th>
-                  <th>Contract ID</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -289,12 +269,20 @@ export function ContractsPage() {
                 {filteredContracts.map((contract) => (
                   <tr key={contract.id}>
                     <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${contract.name} for comparison`}
+                        checked={selectedContractIds.includes(contract.id)}
+                        onChange={() => toggleCompareSelection(contract.id)}
+                        disabled={!representativeDocumentByContract.has(contract.id)}
+                      />
+                    </td>
+                    <td>
                       <strong>
                         <Link to={`/contracts/${encodeURIComponent(contract.id)}/edit`}>{contract.name}</Link>
                       </strong>
                     </td>
                     <td>{contract.file_count}</td>
-                    <td><span className={sourceBadgeClass(contract.source_type)}>{contract.source_type ?? "-"}</span></td>
                     <td>
                       {(contract.tags ?? []).length > 0 ? (
                         <div className="tag-list">
@@ -310,9 +298,14 @@ export function ContractsPage() {
                     </td>
                     <td>{formatEuropeanDateTime(contract.created_at)}</td>
                     <td>
-                      <code>{contract.id}</code>
-                    </td>
-                    <td>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={!representativeDocumentByContract.has(contract.id)}
+                        onClick={() => compareWithSelected(contract.id)}
+                      >
+                        Compare
+                      </button>
                       <button
                         type="button"
                         className="danger"

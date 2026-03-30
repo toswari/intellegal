@@ -34,6 +34,7 @@ vi.mock("../api/client", async (importOriginal) => {
         text: "test",
         has_text: true
       }),
+      searchContractSections: vi.fn().mockResolvedValue({ items: [] }),
       createDocument: vi.fn(),
       deleteDocument: vi.fn(),
       startClausePresenceCheck: vi.fn(),
@@ -50,6 +51,7 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { NewContractPage } from "../pages/NewContractPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ResultsPage } from "../pages/ResultsPage";
+import { SearchPage } from "../pages/SearchPage";
 
 function renderAt(path: string) {
   const router = createMemoryRouter(
@@ -59,6 +61,7 @@ function renderAt(path: string) {
         element: <AppShell />,
         children: [
           { index: true, element: <DashboardPage /> },
+          { path: "search", element: <SearchPage /> },
           { path: "contracts", element: <ContractsPage /> },
           { path: "contracts/new", element: <NewContractPage /> },
           { path: "contracts/compare", element: <CompareContractsPage /> },
@@ -84,6 +87,7 @@ describe("router", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Legal Document Intelligence" })).toBeVisible();
     expect(screen.getByRole("heading", { level: 2, name: "Dashboard" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
     expect(screen.getByRole("link", { name: "Contracts" })).toHaveAttribute("href", "/contracts");
     expect(screen.getByRole("link", { name: "Checks" })).toHaveAttribute("href", "/checks");
   });
