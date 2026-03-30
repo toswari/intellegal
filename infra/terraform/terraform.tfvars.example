@@ -1,0 +1,7 @@
+project_name = "legal-doc-intel"
+environment  = "dev"
+location     = "westeurope"
+
+tags = {
+  owner = "platform"
+}

@@ -1,0 +1,30 @@
+[project]
+name = "py-ai-api"
+version = "0.1.0"
+description = "Internal AI pipeline API for OCR and RAG workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "pypdf>=5.0.0,<6.0.0",
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "pydantic-settings>=2.8.0,<3.0.0",
+  "qdrant-client>=1.12.0,<2.0.0",
+  "uvicorn[standard]>=0.35.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.0",
+  "pytest>=8.0.0",
+  "pytest-cov>=5.0.0"
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

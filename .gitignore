@@ -1,0 +1,25 @@
+# Environment files
+.env
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+py-ai-api/.venv/
+
+# Frontend
+frontend/node_modules/
+frontend/coverage/
+frontend/dist/
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Build artifacts
+*.out
+
+# Temporary files
+tmp/

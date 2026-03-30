@@ -1,0 +1,297 @@
+openapi: 3.1.0
+info:
+  title: Legal Document Intelligence Internal AI API
+  version: 1.0.0
+  description: Internal service-to-service API served by the Python AI API.
+servers:
+  - url: http://localhost:8000
+    description: Local development
+security:
+  - internalBearer: []
+paths:
+  /internal/v1/extract:
+    post:
+      summary: Start extraction/OCR job for one document
+      operationId: startExtractionJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractJobRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /internal/v1/index:
+    post:
+      summary: Start indexing/embedding job for one document
+      operationId: startIndexingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IndexJobRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /internal/v1/analyze/clause:
+    post:
+      summary: Start clause presence analysis job
+      operationId: startClauseAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeClauseRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /internal/v1/analyze/company-name:
+    post:
+      summary: Start company-name analysis job
+      operationId: startCompanyNameAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeCompanyNameRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /internal/v1/jobs/{job_id}:
+    get:
+      summary: Get internal job status
+      operationId: getInternalJobStatus
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalJobStatusResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  securitySchemes:
+    internalBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-token
+
+  responses:
+    ErrorResponse:
+      description: Standard error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, retriable]
+          properties:
+            code:
+              type: string
+              examples: [invalid_argument, unauthorized, dependency_unavailable]
+            message:
+              type: string
+            retriable:
+              type: boolean
+            details:
+              type: object
+              additionalProperties: true
+
+    InternalJobType:
+      type: string
+      enum: [extract, index, analyze_clause, analyze_company_name]
+
+    InternalJobStatus:
+      type: string
+      enum: [queued, running, completed, failed]
+
+    AcceptedJobResponse:
+      type: object
+      required: [job_id, status, job_type]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/InternalJobStatus'
+        job_type:
+          $ref: '#/components/schemas/InternalJobType'
+
+    ExtractJobRequest:
+      type: object
+      required: [job_id, document_id, storage_uri]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          description: Propagated trace ID from caller.
+        document_id:
+          type: string
+          format: uuid
+        storage_uri:
+          type: string
+        mime_type:
+          type: string
+          enum: [application/pdf, image/jpeg]
+
+    IndexJobRequest:
+      type: object
+      required: [job_id, document_id]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        document_id:
+          type: string
+          format: uuid
+        version_checksum:
+          type: string
+        reindex:
+          type: boolean
+          default: false
+        extracted_text:
+          type: string
+          description: Optional extracted document text. If omitted, pages can be provided.
+        pages:
+          type: array
+          items:
+            type: object
+            required: [page_number, text]
+            properties:
+              page_number:
+                type: integer
+              text:
+                type: string
+        source_uri:
+          type: string
+
+    AnalyzeClauseRequest:
+      type: object
+      required: [job_id, check_id, required_clause_text]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        check_id:
+          type: string
+          format: uuid
+        document_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        required_clause_text:
+          type: string
+        context_hint:
+          type: string
+
+    AnalyzeCompanyNameRequest:
+      type: object
+      required: [job_id, check_id, old_company_name]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        check_id:
+          type: string
+          format: uuid
+        document_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        old_company_name:
+          type: string
+        new_company_name:
+          type: string
+
+    InternalJobStatusResponse:
+      type: object
+      required: [job_id, job_type, status, updated_at]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        job_type:
+          $ref: '#/components/schemas/InternalJobType'
+        status:
+          $ref: '#/components/schemas/InternalJobStatus'
+        error:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
