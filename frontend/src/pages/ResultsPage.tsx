@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient, type CheckResultItem, type CheckRunResponse, type CheckType } from "../api/client";
+import { formatEuropeanDateTime } from "../app/datetime";
 import { addAuditEvent, getStoredResults, listStoredRuns, setStoredResults, upsertStoredRun } from "../app/localState";
 
 type SelectedRun = {
@@ -218,11 +219,11 @@ export function ResultsPage() {
                 <strong>Check Type:</strong> {run.check_type}
               </p>
               <p>
-                <strong>Requested:</strong> {new Date(run.requested_at).toLocaleString()}
+                <strong>Requested:</strong> {formatEuropeanDateTime(run.requested_at)}
               </p>
               {run.finished_at ? (
                 <p>
-                  <strong>Finished:</strong> {new Date(run.finished_at).toLocaleString()}
+                  <strong>Finished:</strong> {formatEuropeanDateTime(run.finished_at)}
                 </p>
               ) : null}
               {run.failure_reason ? (

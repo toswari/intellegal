@@ -179,6 +179,16 @@ button {
   gap: 1rem;
 }
 
+.page-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.contracts-list {
+  margin-top: 1rem;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -257,6 +267,38 @@ button:hover {
 }
 
 button.secondary {
+  border-color: var(--line);
+  background: #ffffff;
+  color: #2d4378;
+}
+
+button.danger {
+  border-color: var(--danger);
+  background: linear-gradient(145deg, #d24d4d, #bc3030);
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border: 1px solid var(--accent);
+  background: linear-gradient(145deg, #4f8df8, #2f7af8);
+  color: #fff;
+  border-radius: 12px;
+  padding: 0.52rem 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition), filter var(--transition);
+}
+
+.button-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 22px -18px rgba(20, 70, 177, 0.9);
+  filter: saturate(1.07);
+}
+
+.button-link.secondary {
   border-color: var(--line);
   background: #ffffff;
   color: #2d4378;
@@ -419,6 +461,60 @@ th {
 .error-text {
   color: var(--danger);
   font-weight: 600;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.17rem 0.52rem;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.chip-success {
+  color: #176741;
+  background: #dcf8ea;
+  border-color: #8adbb4;
+}
+
+.chip-warning {
+  color: #8a4e07;
+  background: #fff2d9;
+  border-color: #f4ce8b;
+}
+
+.chip-danger {
+  color: #891f1f;
+  background: #ffe2e2;
+  border-color: #f4aaaa;
+}
+
+.chip-neutral {
+  color: #3a4d7f;
+  background: #edf2ff;
+  border-color: #c8d5f2;
+}
+
+.chip-source-upload {
+  color: #0f4f7f;
+  background: #dff4ff;
+  border-color: #97d1ee;
+}
+
+.chip-source-repository {
+  color: #5b2f83;
+  background: #f0e3ff;
+  border-color: #cfb3f0;
+}
+
+.chip-source-api {
+  color: #8a3c0d;
+  background: #ffe8d5;
+  border-color: #f1bc91;
 }
 
 code {

@@ -29,3 +29,7 @@ func (a *AzureBlobAdapter) Put(_ context.Context, _ string, _ io.Reader) (string
 func (a *AzureBlobAdapter) Get(_ context.Context, _ string) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("azure blob get (%s/%s): %w", a.accountName, a.container, ErrNotImplemented)
 }
+
+func (a *AzureBlobAdapter) Delete(_ context.Context, _ string) error {
+	return fmt.Errorf("azure blob delete (%s/%s): %w", a.accountName, a.container, ErrNotImplemented)
+}

@@ -82,6 +82,18 @@ describe("ApiClient", () => {
     ).rejects.toEqual(expect.any(ApiError));
   });
 
+  it("sends delete request for deleteDocument", async () => {
+    const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
+    const client = new ApiClient("http://localhost:8080", fetchFn as typeof fetch);
+
+    await client.deleteDocument("00000000-0000-4000-8000-000000000001");
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/documents/00000000-0000-4000-8000-000000000001",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("uses global fetch path by default to avoid illegal invocation", async () => {
     const originalFetch = globalThis.fetch;
     const fetchFn = vi.fn(async function (this: unknown) {

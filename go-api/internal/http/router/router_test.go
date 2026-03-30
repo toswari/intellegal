@@ -29,7 +29,7 @@ func (mockAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.IndexResul
 
 func TestHealthEndpoint(t *testing.T) {
 	api := handlers.NewAPI(slog.New(slog.NewJSONHandler(io.Discard, nil)), mockAIClient{}, nil, nil)
-	handler := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), api, nil)
+	handler := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), api, nil, []string{"http://localhost:3000"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	w := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 func TestReadinessEndpoint(t *testing.T) {
 	api := handlers.NewAPI(slog.New(slog.NewJSONHandler(io.Discard, nil)), mockAIClient{}, nil, nil)
-	handler := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), api, nil)
+	handler := New(slog.New(slog.NewJSONHandler(io.Discard, nil)), api, nil, []string{"http://localhost:3000"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/readiness", nil)
 	w := httptest.NewRecorder()
@@ -65,6 +65,7 @@ func TestReadinessEndpointUnavailable(t *testing.T) {
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		api,
 		func(_ context.Context) error { return context.DeadlineExceeded },
+		[]string{"http://localhost:3000"},
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/readiness", nil)

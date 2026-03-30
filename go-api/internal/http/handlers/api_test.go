@@ -80,7 +80,7 @@ func (f *fakeAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.IndexRe
 func TestDocumentAndCheckFlow(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	api := handlers.NewAPI(logger, &fakeAIClient{}, nil, nil)
-	ts := httptest.NewServer(router.New(logger, api, nil))
+	ts := httptest.NewServer(router.New(logger, api, nil, []string{"http://localhost:3000"}))
 	defer ts.Close()
 
 	docResp := postJSON(t, ts.URL+"/api/v1/documents", map[string]any{

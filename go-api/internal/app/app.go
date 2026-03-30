@@ -52,7 +52,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		pingCtx, cancel := context.WithTimeout(ctx, cfg.DatabasePingTimeout)
 		defer cancel()
 		return pg.Ping(pingCtx)
-	})
+	}, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

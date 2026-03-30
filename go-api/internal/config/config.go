@@ -17,6 +17,7 @@ type Config struct {
 	Port                 int
 	LogLevel             slog.Level
 	ShutdownGracePeriod  time.Duration
+	CORSAllowedOrigins   []string
 	DatabaseURL          string
 	DatabasePingTimeout  time.Duration
 	InternalServiceToken string
@@ -36,6 +37,7 @@ func Load() (Config, error) {
 		Port:                 8080,
 		LogLevel:             slog.LevelInfo,
 		ShutdownGracePeriod:  10 * time.Second,
+		CORSAllowedOrigins:   []string{"http://localhost:3000", "http://127.0.0.1:3000"},
 		DatabasePingTimeout:  5 * time.Second,
 		InternalServiceToken: defaultInternalToken,
 		InternalAIBaseURL:    "http://localhost:8000",
@@ -75,6 +77,21 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid SHUTDOWN_GRACE_PERIOD: %q", v)
 		}
 		cfg.ShutdownGracePeriod = dur
+	}
+
+	if v := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS")); v != "" {
+		parts := strings.Split(v, ",")
+		origins := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				origins = append(origins, trimmed)
+			}
+		}
+		if len(origins) == 0 {
+			return Config{}, errors.New("CORS_ALLOWED_ORIGINS is set but empty")
+		}
+		cfg.CORSAllowedOrigins = origins
 	}
 
 	if v := strings.TrimSpace(os.Getenv("DATABASE_URL")); v != "" {

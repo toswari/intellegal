@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -119,7 +120,7 @@ class IndexingPipeline:
             vector = self._embeddings.embed(chunk.text)
             points.append(
                 {
-                    "id": f"{document_id}:{doc_version_id}:{chunk.chunk_id}",
+                    "id": _qdrant_point_id(document_id=document_id, document_version_id=doc_version_id, chunk_id=chunk.chunk_id),
                     "vector": vector,
                     "payload": {
                         "document_id": document_id,
@@ -148,6 +149,7 @@ class IndexingPipeline:
                 "chunk_size": self._chunk_size,
                 "chunk_overlap": self._chunk_overlap,
                 "page_count": len(normalized_pages),
+                "empty_content": len(normalized_pages) == 0,
                 "processing_ms": int((monotonic() - started) * 1000),
             },
         )
@@ -170,12 +172,7 @@ def _prepare_pages(text: str | None, pages: list[IndexPageInput] | None) -> list
         if pages_from_text:
             return pages_from_text
 
-    raise ExtractionError(
-        "index request requires non-empty extracted text or page list",
-        code="invalid_argument",
-        status_code=400,
-        retriable=False,
-    )
+    return []
 
 
 def _chunk_pages(pages: list[IndexPageInput], *, chunk_size: int, overlap: int) -> list[Chunk]:
@@ -211,3 +208,8 @@ def _chunk_confidence(text: str) -> float:
     if length < 192:
         return 0.74
     return 0.9
+
+
+def _qdrant_point_id(*, document_id: str, document_version_id: str, chunk_id: int) -> str:
+    seed = f"{document_id}:{document_version_id}:{chunk_id}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))

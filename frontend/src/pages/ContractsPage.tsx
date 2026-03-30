@@ -1,6 +1,7 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiClient, type DocumentResponse, type DocumentStatus } from "../api/client";
-import { addAuditEvent } from "../app/localState";
+import { formatEuropeanDateTime } from "../app/datetime";
 
 type Filters = {
   status: "all" | DocumentStatus;
@@ -8,29 +9,12 @@ type Filters = {
   query: string;
 };
 
-async function toBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-
-  for (const value of bytes) {
-    binary += String.fromCharCode(value);
-  }
-
-  return btoa(binary);
-}
-
 export function ContractsPage() {
   const [filters, setFilters] = useState<Filters>({ status: "all", sourceType: "all", query: "" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentResponse[]>([]);
-
-  const [file, setFile] = useState<File | null>(null);
-  const [sourceType, setSourceType] = useState<"repository" | "upload" | "api">("upload");
-  const [sourceRef, setSourceRef] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -70,92 +54,56 @@ export function ContractsPage() {
     });
   }, [documents, filters.query]);
 
-  const uploadDocument = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!file) {
-      setUploadError("Select a PDF or JPEG file first.");
+  const handleDelete = async (document: DocumentResponse) => {
+    const confirmed = window.confirm(
+      `Delete "${document.filename}" permanently?\n\nThis will hard-delete the contract file and related data.`
+    );
+    if (!confirmed) {
       return;
     }
 
-    if (file.type !== "application/pdf" && file.type !== "image/jpeg") {
-      setUploadError("Only application/pdf and image/jpeg are supported.");
-      return;
-    }
-
-    setUploading(true);
-    setUploadError(null);
-
+    setError(null);
+    setDeletingDocumentId(document.id);
     try {
-      const contentBase64 = await toBase64(file);
-      const response = await apiClient.createDocument(
-        {
-          filename: file.name,
-          mime_type: file.type as "application/pdf" | "image/jpeg",
-          source_type: sourceType,
-          source_ref: sourceRef.trim() || undefined,
-          content_base64: contentBase64
-        },
-        { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}` }
-      );
-
-      addAuditEvent({
-        type: "document.uploaded",
-        message: `Uploaded ${response.filename}`,
-        metadata: { document_id: response.id, mime_type: response.mime_type }
-      });
-
-      setFile(null);
-      setSourceRef("");
-      await loadDocuments();
+      await apiClient.deleteDocument(document.id);
+      setDocuments((prev) => prev.filter((item) => item.id !== document.id));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload failed.";
-      setUploadError(message);
+      const message = err instanceof Error ? err.message : "Failed to delete document.";
+      setError(message);
     } finally {
-      setUploading(false);
+      setDeletingDocumentId(null);
     }
+  };
+
+  const statusBadgeClass = (status: DocumentStatus) => {
+    if (status === "indexed") return "chip chip-success";
+    if (status === "failed") return "chip chip-danger";
+    if (status === "processing") return "chip chip-warning";
+    return "chip chip-neutral";
+  };
+
+  const sourceBadgeClass = (sourceType?: string) => {
+    if (sourceType === "upload") return "chip chip-source-upload";
+    if (sourceType === "repository") return "chip chip-source-repository";
+    if (sourceType === "api") return "chip chip-source-api";
+    return "chip chip-neutral";
   };
 
   return (
     <section className="page">
       <header className="page-header">
         <h2>Contracts</h2>
-        <button type="button" className="secondary" onClick={() => void loadDocuments()}>
-          Refresh
-        </button>
+        <div className="page-actions">
+          <button type="button" className="secondary" onClick={() => void loadDocuments()}>
+            Refresh
+          </button>
+          <Link to="/contracts/new" className="button-link">
+            New Contract
+          </Link>
+        </div>
       </header>
 
-      <form className="panel" onSubmit={uploadDocument}>
-        <h3>Upload Contract</h3>
-        <div className="form-grid">
-          <label>
-            File
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              required
-            />
-          </label>
-          <label>
-            Source Type
-            <select value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}>
-              <option value="upload">upload</option>
-              <option value="repository">repository</option>
-              <option value="api">api</option>
-            </select>
-          </label>
-          <label>
-            Source Ref
-            <input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} placeholder="Optional" />
-          </label>
-        </div>
-        {uploadError ? <p className="error-text">{uploadError}</p> : null}
-        <button type="submit" disabled={uploading}>{uploading ? "Uploading..." : "Upload"}</button>
-      </form>
-
-      <section className="panel">
-        <h3>Contract List</h3>
+      <section className="contracts-list">
         <div className="filter-row">
           <label>
             Status
@@ -208,17 +156,32 @@ export function ContractsPage() {
                   <th>Source</th>
                   <th>Created</th>
                   <th>Document ID</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((document) => (
                   <tr key={document.id}>
                     <td>{document.filename}</td>
-                    <td>{document.status}</td>
-                    <td>{document.source_type ?? "-"}</td>
-                    <td>{new Date(document.created_at).toLocaleString()}</td>
+                    <td>
+                      <span className={statusBadgeClass(document.status)}>{document.status}</span>
+                    </td>
+                    <td>
+                      <span className={sourceBadgeClass(document.source_type)}>{document.source_type ?? "-"}</span>
+                    </td>
+                    <td>{formatEuropeanDateTime(document.created_at)}</td>
                     <td>
                       <code>{document.id}</code>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={deletingDocumentId !== null}
+                        onClick={() => void handleDelete(document)}
+                      >
+                        {deletingDocumentId === document.id ? "Deleting..." : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}

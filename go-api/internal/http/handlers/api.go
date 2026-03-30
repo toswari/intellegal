@@ -54,6 +54,7 @@ type aiClient interface {
 
 type documentStore interface {
 	Put(ctx context.Context, key string, body io.Reader) (string, error)
+	Delete(ctx context.Context, key string) error
 }
 
 type externalCopyClient interface {
@@ -87,6 +88,10 @@ type noopDocumentStore struct{}
 
 func (noopDocumentStore) Put(_ context.Context, key string, _ io.Reader) (string, error) {
 	return "file:///" + key, nil
+}
+
+func (noopDocumentStore) Delete(_ context.Context, _ string) error {
+	return nil
 }
 
 type noopExternalCopyClient struct{}
@@ -129,6 +134,7 @@ type document struct {
 	MIMEType   string
 	Status     string
 	Checksum   string
+	StorageKey string
 	StorageURI string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -316,6 +322,7 @@ func (a *API) CreateDocument(w http.ResponseWriter, r *http.Request) {
 		MIMEType:   req.MIMEType,
 		Status:     documentStatusProcessing,
 		Checksum:   checksum,
+		StorageKey: objectKey,
 		StorageURI: storageURI,
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -456,6 +463,66 @@ func (a *API) GetDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, mapDocument(doc))
+}
+
+func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	documentID := strings.TrimSpace(r.PathValue("document_id"))
+	if !isUUID(documentID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
+		return
+	}
+
+	a.mu.RLock()
+	doc, ok := a.documents[documentID]
+	a.mu.RUnlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "document not found", false, nil)
+		return
+	}
+
+	if err := a.store.Delete(r.Context(), doc.StorageKey); err != nil {
+		a.logger.Error("document storage delete failed", "document_id", documentID, "error", err)
+		writeError(w, http.StatusBadGateway, "storage_unavailable", "failed to delete document asset", true, nil)
+		return
+	}
+
+	a.mu.Lock()
+	if _, exists := a.documents[documentID]; !exists {
+		a.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	delete(a.documents, documentID)
+
+	deletedChecks := make(map[string]struct{})
+	for checkID, run := range a.checks {
+		if containsString(run.DocumentIDs, documentID) {
+			delete(a.checks, checkID)
+			deletedChecks[checkID] = struct{}{}
+		}
+	}
+
+	for key, rec := range a.idempotency {
+		if _, ok := deletedChecks[rec.CheckID]; ok {
+			delete(a.idempotency, key)
+		}
+	}
+
+	deletedCopyEvents := 0
+	for eventID, event := range a.copyEvents {
+		if event.DocumentID == documentID {
+			delete(a.copyEvents, eventID)
+			deletedCopyEvents++
+		}
+	}
+	a.mu.Unlock()
+
+	a.emitAuditEvent("document.deleted", "document", documentID, map[string]any{
+		"checks_deleted":      len(deletedChecks),
+		"copy_events_deleted": deletedCopyEvents,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) CreateClauseCheck(w http.ResponseWriter, r *http.Request) {
@@ -984,4 +1051,13 @@ func extensionForFilename(filename, mimeType string) string {
 	}
 
 	return ".jpg"
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

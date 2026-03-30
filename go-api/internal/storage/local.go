@@ -79,6 +79,22 @@ func (a *LocalAdapter) Get(_ context.Context, key string) (io.ReadCloser, error)
 	return file, nil
 }
 
+func (a *LocalAdapter) Delete(_ context.Context, key string) error {
+	target, err := a.resolvePath(key)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(target); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("delete object: %w", err)
+	}
+
+	return nil
+}
+
 func (a *LocalAdapter) resolvePath(key string) (string, error) {
 	cleanKey := filepath.Clean(strings.TrimSpace(key))
 	if cleanKey == "." || cleanKey == "" {

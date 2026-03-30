@@ -161,6 +161,10 @@ export class ApiClient {
     return this.request<DocumentResponse>("GET", `/api/v1/documents/${encodeURIComponent(documentId)}`);
   }
 
+  deleteDocument(documentId: string) {
+    return this.request<void>("DELETE", `/api/v1/documents/${encodeURIComponent(documentId)}`);
+  }
+
   startClausePresenceCheck(body: ClauseCheckRequest, options?: RequestOptions) {
     return this.request<CheckAcceptedResponse>(
       "POST",
@@ -191,7 +195,7 @@ export class ApiClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     body?: unknown,
     options?: RequestOptions
@@ -240,6 +244,10 @@ export class ApiClient {
     if (!response.ok) {
       const payload = (await response.json()) as ErrorEnvelope;
       throw new ApiError(response.status, payload);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return (await response.json()) as T;

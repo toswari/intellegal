@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from py_ai_api.indexing import IndexPageInput, IndexingPipeline
 
 
@@ -40,6 +42,8 @@ def test_indexing_splits_text_into_overlapping_chunks() -> None:
     assert points[0]["payload"]["page_number"] == 1
     assert points[0]["payload"]["text"] == "ABCDEFGHIJ"
     assert points[1]["payload"]["text"] == "HIJKLMNO"
+    assert str(uuid.UUID(str(points[0]["id"]))) == points[0]["id"]
+    assert str(uuid.UUID(str(points[1]["id"]))) == points[1]["id"]
 
 
 def test_indexing_skips_when_checksum_is_already_indexed() -> None:
@@ -75,3 +79,23 @@ def test_reindex_deletes_old_chunks_then_upserts() -> None:
     assert result.indexed is True
     assert qdrant.deleted_document_ids == ["doc-1"]
     assert len(qdrant.upserts) == 1
+
+
+def test_indexing_allows_empty_extracted_content() -> None:
+    qdrant = _FakeQdrant()
+    pipeline = IndexingPipeline(qdrant=qdrant, vector_size=8)
+
+    result = pipeline.index_document(
+        document_id="doc-1",
+        checksum="sha-v1",
+        text="",
+        pages=None,
+        reindex=False,
+    )
+
+    assert result.indexed is True
+    assert result.chunk_count == 0
+    assert result.diagnostics["page_count"] == 0
+    assert result.diagnostics["empty_content"] is True
+    assert len(qdrant.upserts) == 1
+    assert qdrant.upserts[0] == []

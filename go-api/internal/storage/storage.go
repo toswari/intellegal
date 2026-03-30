@@ -12,4 +12,5 @@ var ErrNotImplemented = errors.New("storage adapter operation is not implemented
 type Adapter interface {
 	Put(ctx context.Context, key string, body io.Reader) (string, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }

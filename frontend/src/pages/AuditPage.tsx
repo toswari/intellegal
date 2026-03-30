@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { formatEuropeanDateTime } from "../app/datetime";
 import { listAuditEvents } from "../app/localState";
 
 export function AuditPage() {
@@ -48,7 +49,7 @@ export function AuditPage() {
               <div>
                 <strong>{event.type}</strong>
                 <p>{event.message}</p>
-                <small>{new Date(event.timestamp).toLocaleString()}</small>
+                <small>{formatEuropeanDateTime(event.timestamp)}</small>
               </div>
               {event.metadata ? (
                 <pre>{JSON.stringify(event.metadata, null, 2)}</pre>

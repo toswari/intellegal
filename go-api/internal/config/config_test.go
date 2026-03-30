@@ -29,6 +29,12 @@ func TestLoadDefaultsWithToken(t *testing.T) {
 	if cfg.DatabasePingTimeout != 5*time.Second {
 		t.Fatalf("expected default database ping timeout 5s, got %s", cfg.DatabasePingTimeout)
 	}
+	if len(cfg.CORSAllowedOrigins) == 0 {
+		t.Fatal("expected default cors allowed origins")
+	}
+	if cfg.CORSAllowedOrigins[0] != "http://localhost:3000" {
+		t.Fatalf("expected localhost:3000 as first default cors origin, got %q", cfg.CORSAllowedOrigins[0])
+	}
 }
 
 func TestLoadFailsWithoutToken(t *testing.T) {
@@ -97,6 +103,33 @@ func TestLoadRequiresAzureFields(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for missing azure storage fields")
+	}
+}
+
+func TestLoadParsesCORSAllowedOrigins(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000, https://app.example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if len(cfg.CORSAllowedOrigins) != 2 {
+		t.Fatalf("expected 2 cors origins, got %d", len(cfg.CORSAllowedOrigins))
+	}
+	if cfg.CORSAllowedOrigins[1] != "https://app.example.com" {
+		t.Fatalf("unexpected second cors origin: %q", cfg.CORSAllowedOrigins[1])
+	}
+}
+
+func TestLoadRejectsEmptyCORSAllowedOrigins(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("CORS_ALLOWED_ORIGINS", " , ")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for empty CORS_ALLOWED_ORIGINS")
 	}
 }
 
