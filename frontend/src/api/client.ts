@@ -14,18 +14,21 @@ export type ErrorEnvelope = {
 };
 
 export type CreateDocumentRequest = {
+  contract_id?: string;
   source_type?: "repository" | "upload" | "api";
   source_ref?: string;
   filename: string;
-  mime_type: "application/pdf" | "image/jpeg";
+  mime_type: "application/pdf" | "image/jpeg" | "image/png";
   content_base64: string;
   tags?: string[];
 };
 
 export type DocumentResponse = {
   id: string;
+  contract_id?: string;
   source_type?: string;
   source_ref?: string;
+  tags?: string[];
   filename: string;
   mime_type: string;
   status: DocumentStatus;
@@ -39,6 +42,44 @@ export type DocumentListResponse = {
   limit: number;
   offset: number;
   total: number;
+};
+
+export type CreateContractRequest = {
+  name: string;
+  source_type?: "repository" | "upload" | "api";
+  source_ref?: string;
+  tags?: string[];
+};
+
+export type UpdateContractRequest = {
+  name?: string;
+  tags?: string[];
+};
+
+export type ContractResponse = {
+  id: string;
+  name: string;
+  source_type?: string;
+  source_ref?: string;
+  tags?: string[];
+  file_count: number;
+  files?: DocumentResponse[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContractListResponse = {
+  items: ContractResponse[];
+  limit: number;
+  offset: number;
+  total: number;
+};
+
+export type DocumentTextResponse = {
+  document_id: string;
+  filename: string;
+  text: string;
+  has_text: boolean;
 };
 
 export type ClauseCheckRequest = {
@@ -87,6 +128,26 @@ export type CheckResultsResponse = {
   check_id: string;
   status: CheckRunStatus;
   items: CheckResultItem[];
+};
+
+export type ContractSearchRequest = {
+  query_text: string;
+  document_ids?: string[];
+  limit?: number;
+};
+
+export type ContractSearchResultItem = {
+  document_id: string;
+  contract_id?: string;
+  filename: string;
+  page_number: number;
+  chunk_id?: string;
+  score: number;
+  snippet_text: string;
+};
+
+export type ContractSearchResponse = {
+  items: ContractSearchResultItem[];
 };
 
 export type RequestOptions = {
@@ -141,15 +202,60 @@ export class ApiClient {
     return this.request<DocumentResponse>("POST", "/api/v1/documents", body, options);
   }
 
+  createContract(body: CreateContractRequest, options?: RequestOptions) {
+    return this.request<ContractResponse>("POST", "/api/v1/contracts", body, options);
+  }
+
+  listContracts(params?: { limit?: number; offset?: number }) {
+    const query = new URLSearchParams();
+    if (params?.limit !== undefined) query.set("limit", String(params.limit));
+    if (params?.offset !== undefined) query.set("offset", String(params.offset));
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return this.request<ContractListResponse>("GET", `/api/v1/contracts${suffix}`);
+  }
+
+  getContract(contractId: string) {
+    return this.request<ContractResponse>("GET", `/api/v1/contracts/${encodeURIComponent(contractId)}`);
+  }
+
+  updateContract(contractId: string, body: UpdateContractRequest) {
+    return this.request<ContractResponse>("PATCH", `/api/v1/contracts/${encodeURIComponent(contractId)}`, body);
+  }
+
+  deleteContract(contractId: string) {
+    return this.request<void>("DELETE", `/api/v1/contracts/${encodeURIComponent(contractId)}`);
+  }
+
+  addContractFile(contractId: string, body: CreateDocumentRequest, options?: RequestOptions) {
+    return this.request<DocumentResponse>(
+      "POST",
+      `/api/v1/contracts/${encodeURIComponent(contractId)}/files`,
+      body,
+      options
+    );
+  }
+
+  reorderContractFiles(contractId: string, fileIds: string[]) {
+    return this.request<ContractResponse>(
+      "PATCH",
+      `/api/v1/contracts/${encodeURIComponent(contractId)}/files/order`,
+      { file_ids: fileIds }
+    );
+  }
+
   listDocuments(params?: {
     status?: DocumentStatus;
     source_type?: "repository" | "upload" | "api";
+    tags?: string[];
     limit?: number;
     offset?: number;
   }) {
     const query = new URLSearchParams();
     if (params?.status) query.set("status", params.status);
     if (params?.source_type) query.set("source_type", params.source_type);
+    for (const tag of params?.tags ?? []) {
+      query.append("tag", tag);
+    }
     if (params?.limit !== undefined) query.set("limit", String(params.limit));
     if (params?.offset !== undefined) query.set("offset", String(params.offset));
 
@@ -159,6 +265,13 @@ export class ApiClient {
 
   getDocument(documentId: string) {
     return this.request<DocumentResponse>("GET", `/api/v1/documents/${encodeURIComponent(documentId)}`);
+  }
+
+  getDocumentText(documentId: string) {
+    return this.request<DocumentTextResponse>(
+      "GET",
+      `/api/v1/documents/${encodeURIComponent(documentId)}/text`
+    );
   }
 
   deleteDocument(documentId: string) {
@@ -194,8 +307,12 @@ export class ApiClient {
     );
   }
 
+  searchContractSections(body: ContractSearchRequest, options?: RequestOptions) {
+    return this.request<ContractSearchResponse>("POST", "/api/v1/contracts/search", body, options);
+  }
+
   private async request<T>(
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
     options?: RequestOptions

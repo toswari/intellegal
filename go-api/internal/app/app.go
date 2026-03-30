@@ -31,6 +31,11 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		LocalPath:          cfg.LocalStoragePath,
 		AzureAccountName:   cfg.AzureStorageAccount,
 		AzureBlobContainer: cfg.AzureBlobContainer,
+		MinIOEndpoint:      cfg.MinIOEndpoint,
+		MinIOAccessKey:     cfg.MinIOAccessKey,
+		MinIOSecretKey:     cfg.MinIOSecretKey,
+		MinIOBucket:        cfg.MinIOBucket,
+		MinIOUseSSL:        cfg.MinIOUseSSL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize storage adapter: %w", err)

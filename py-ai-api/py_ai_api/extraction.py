@@ -9,11 +9,13 @@ from dataclasses import dataclass
 from io import BytesIO
 from time import monotonic
 from typing import Any, Protocol
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel, Field
 
-SUPPORTED_MIME_TYPES = {"application/pdf", "image/jpeg"}
+SUPPORTED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 
 
 class ExtractionError(Exception):
@@ -165,7 +167,7 @@ class ExtractionPipeline:
             raw_pages = self._pdf_extractor.extract_pages(payload)
             if not raw_pages:
                 raw_pages = [""]
-        elif mime_type == "image/jpeg":
+        elif mime_type in {"image/jpeg", "image/png"}:
             source = "ocr"
             ocr_used = True
             ocr_text = self._ocr_extractor.extract(payload)
@@ -240,6 +242,28 @@ def _resolve_mime_type(mime_type: str | None, file_path: str | None) -> str:
 
 def _load_document_bytes(storage_uri: str) -> tuple[bytes, str]:
     parsed = urlparse(storage_uri)
+    if parsed.scheme in {"http", "https"}:
+        request = urlrequest.Request(storage_uri, method="GET")
+        try:
+            with urlrequest.urlopen(request, timeout=20) as response:
+                return response.read(), parsed.path or storage_uri
+        except urlerror.HTTPError as exc:
+            raise ExtractionError(
+                "storage_uri http request failed",
+                code="invalid_argument",
+                status_code=400,
+                retriable=False,
+                details={"storage_uri": storage_uri, "status_code": exc.code},
+            ) from exc
+        except urlerror.URLError as exc:
+            raise ExtractionError(
+                "storage_uri http request failed",
+                code="dependency_unavailable",
+                status_code=502,
+                retriable=True,
+                details={"storage_uri": storage_uri, "error": str(exc.reason)},
+            ) from exc
+
     if parsed.scheme not in {"", "file"}:
         raise ExtractionError(
             f"unsupported storage_uri scheme: {parsed.scheme}",

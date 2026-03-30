@@ -56,6 +56,213 @@ func TestCreateDocumentRejectsUnsupportedMIMEType(t *testing.T) {
 	}
 }
 
+func TestCreateDocumentStoresNormalizedTags(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
+		"filename":       "contract.pdf",
+		"mime_type":      "application/pdf",
+		"content_base64": "dGVzdA==",
+		"tags":           []string{"  MSA  ", "Finance", "finance", "", "2026"},
+	}, api.CreateDocument)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.Code)
+	}
+
+	var body struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags"`
+	}
+	decodeJSONBodyInto(t, resp, &body)
+	if body.ID == "" {
+		t.Fatal("expected created document id")
+	}
+	if len(body.Tags) != 3 {
+		t.Fatalf("expected 3 normalized tags, got %d", len(body.Tags))
+	}
+	if body.Tags[0] != "MSA" || body.Tags[1] != "Finance" || body.Tags[2] != "2026" {
+		t.Fatalf("unexpected tags: %#v", body.Tags)
+	}
+}
+
+func TestCreateDocumentAcceptsPNG(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
+		"filename":       "scan.png",
+		"mime_type":      "image/png",
+		"content_base64": "dGVzdA==",
+	}, api.CreateDocument)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.Code)
+	}
+
+	var body struct {
+		MIMEType string `json:"mime_type"`
+	}
+	decodeJSONBodyInto(t, resp, &body)
+	if body.MIMEType != "image/png" {
+		t.Fatalf("expected image/png mime type, got %q", body.MIMEType)
+	}
+}
+
+func TestContractSupportsMultipleFilesAndReorder(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	createContractResp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts", map[string]any{
+		"name": "MSA 2026",
+	}, api.CreateContract)
+	if createContractResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createContractResp.Code)
+	}
+
+	var contractBody struct {
+		ID string `json:"id"`
+	}
+	decodeJSONBodyInto(t, createContractResp, &contractBody)
+	if contractBody.ID == "" {
+		t.Fatal("expected contract id")
+	}
+
+	addFile := func(filename, mime string) string {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/contracts/"+contractBody.ID+"/files", bytes.NewReader([]byte(`{
+			"filename":"`+filename+`",
+			"mime_type":"`+mime+`",
+			"content_base64":"dGVzdA=="
+		}`)))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("contract_id", contractBody.ID)
+		w := httptest.NewRecorder()
+		api.AddContractFile(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201 while adding file, got %d", w.Code)
+		}
+		var out struct {
+			ID string `json:"id"`
+		}
+		decodeJSONBodyInto(t, w, &out)
+		return out.ID
+	}
+
+	firstFileID := addFile("page-1.pdf", "application/pdf")
+	secondFileID := addFile("page-2.png", "image/png")
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/contracts/"+contractBody.ID, nil)
+	getReq.SetPathValue("contract_id", contractBody.ID)
+	getResp := httptest.NewRecorder()
+	api.GetContract(getResp, getReq)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getResp.Code)
+	}
+
+	var detail struct {
+		FileCount int `json:"file_count"`
+		Files     []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+	}
+	decodeJSONBodyInto(t, getResp, &detail)
+	if detail.FileCount != 2 {
+		t.Fatalf("expected 2 files, got %d", detail.FileCount)
+	}
+	if len(detail.Files) != 2 || detail.Files[0].ID != firstFileID || detail.Files[1].ID != secondFileID {
+		t.Fatalf("unexpected original file order: %#v", detail.Files)
+	}
+
+	reorderReq := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+contractBody.ID+"/files/order", bytes.NewReader([]byte(`{
+		"file_ids":["`+secondFileID+`","`+firstFileID+`"]
+	}`)))
+	reorderReq.Header.Set("Content-Type", "application/json")
+	reorderReq.SetPathValue("contract_id", contractBody.ID)
+	reorderResp := httptest.NewRecorder()
+	api.ReorderContractFiles(reorderResp, reorderReq)
+	if reorderResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", reorderResp.Code)
+	}
+
+	var reordered struct {
+		Files []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+	}
+	decodeJSONBodyInto(t, reorderResp, &reordered)
+	if len(reordered.Files) != 2 || reordered.Files[0].ID != secondFileID || reordered.Files[1].ID != firstFileID {
+		t.Fatalf("unexpected reordered file order: %#v", reordered.Files)
+	}
+}
+
+func TestUpdateContractUpdatesNameAndTags(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	createResp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts", map[string]any{
+		"name": "Original Name",
+		"tags": []string{"  legal  ", "Finance", "finance"},
+	}, api.CreateContract)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", createResp.Code)
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	decodeJSONBodyInto(t, createResp, &created)
+
+	updateReq := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+created.ID, bytes.NewReader([]byte(`{
+		"name": "  Updated Name ",
+		"tags": ["MSA", " procurement ", "msa"]
+	}`)))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.SetPathValue("contract_id", created.ID)
+	updateResp := httptest.NewRecorder()
+
+	api.UpdateContract(updateResp, updateReq)
+
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", updateResp.Code)
+	}
+
+	var body struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	decodeJSONBodyInto(t, updateResp, &body)
+	if body.Name != "Updated Name" {
+		t.Fatalf("expected trimmed updated name, got %q", body.Name)
+	}
+	if len(body.Tags) != 2 || body.Tags[0] != "MSA" || body.Tags[1] != "procurement" {
+		t.Fatalf("unexpected updated tags: %#v", body.Tags)
+	}
+}
+
+func TestUpdateContractRejectsEmptyPayload(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	contractID := "00000000-0000-4000-8000-000000000021"
+	api.contracts[contractID] = contract{
+		ID:        contractID,
+		Name:      "MSA",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/contracts/"+contractID, bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("contract_id", contractID)
+	w := httptest.NewRecorder()
+
+	api.UpdateContract(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	body := decodeJSONBody(t, w)
+	if body.Error.Code != "invalid_argument" {
+		t.Fatalf("expected invalid_argument, got %q", body.Error.Code)
+	}
+}
+
 func TestCreateClauseCheckRejectsShortText(t *testing.T) {
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
@@ -225,6 +432,86 @@ func TestDeleteDocumentKeepsMetadataWhenStorageDeleteFails(t *testing.T) {
 	}
 }
 
+func TestListDocumentsFiltersByTags(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	create := func(tags []string) {
+		resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
+			"filename":       "contract.pdf",
+			"mime_type":      "application/pdf",
+			"content_base64": "dGVzdA==",
+			"tags":           tags,
+		}, api.CreateDocument)
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", resp.Code)
+		}
+	}
+
+	create([]string{"Finance", "MSA"})
+	create([]string{"Vendor"})
+	create([]string{"NDA", "Legal"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents?tag=msa&tag=vendor", nil)
+	w := httptest.NewRecorder()
+	api.ListDocuments(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var body struct {
+		Total int `json:"total"`
+		Items []struct {
+			Tags []string `json:"tags"`
+		} `json:"items"`
+	}
+	decodeJSONBodyInto(t, w, &body)
+
+	if body.Total != 2 {
+		t.Fatalf("expected 2 documents for OR tag filter, got %d", body.Total)
+	}
+}
+
+func TestGetDocumentTextReturnsExtractedText(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+	documentID := "00000000-0000-4000-8000-000000000051"
+	api.documents[documentID] = document{
+		ID:            documentID,
+		Filename:      "master-service-agreement.pdf",
+		MIMEType:      "application/pdf",
+		ExtractedText: "Section 1. Parties\nAcme LLC and Vendor Ltd.",
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents/"+documentID+"/text", nil)
+	req.SetPathValue("document_id", documentID)
+	w := httptest.NewRecorder()
+
+	api.GetDocumentText(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var body struct {
+		DocumentID string `json:"document_id"`
+		HasText    bool   `json:"has_text"`
+		Text       string `json:"text"`
+	}
+	decodeJSONBodyInto(t, w, &body)
+
+	if body.DocumentID != documentID {
+		t.Fatalf("expected document id %q, got %q", documentID, body.DocumentID)
+	}
+	if !body.HasText {
+		t.Fatal("expected has_text=true")
+	}
+	if body.Text == "" {
+		t.Fatal("expected non-empty extracted text")
+	}
+}
+
 type errorResponse struct {
 	Error struct {
 		Code string `json:"code"`
@@ -251,4 +538,11 @@ func decodeJSONBody(t *testing.T, resp *httptest.ResponseRecorder) errorResponse
 		t.Fatal(err)
 	}
 	return out
+}
+
+func decodeJSONBodyInto(t *testing.T, resp *httptest.ResponseRecorder, out any) {
+	t.Helper()
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil && err != io.EOF {
+		t.Fatal(err)
+	}
 }

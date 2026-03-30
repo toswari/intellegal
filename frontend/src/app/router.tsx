@@ -3,6 +3,9 @@ import { AppShell } from "./AppShell";
 import { AuditPage } from "../pages/AuditPage";
 import { ChecksPage } from "../pages/ChecksPage";
 import { ContractsPage } from "../pages/ContractsPage";
+import { CompareContractsPage } from "../pages/CompareContractsPage";
+import { ContractEditPage } from "../pages/ContractEditPage";
+import { ContractViewPage } from "../pages/ContractViewPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { NewContractPage } from "../pages/NewContractPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -16,6 +19,9 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "contracts", element: <ContractsPage /> },
       { path: "contracts/new", element: <NewContractPage /> },
+      { path: "contracts/files/:documentId", element: <ContractViewPage /> },
+      { path: "contracts/:contractId/edit", element: <ContractEditPage /> },
+      { path: "contracts/compare", element: <CompareContractsPage /> },
       { path: "checks", element: <ChecksPage /> },
       { path: "results", element: <ResultsPage /> },
       { path: "audit", element: <AuditPage /> }

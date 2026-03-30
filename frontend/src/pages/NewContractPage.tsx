@@ -17,48 +17,77 @@ async function toBase64(file: File): Promise<string> {
 
 export function NewContractPage() {
   const navigate = useNavigate();
-  const [file, setFile] = useState<File | null>(null);
-  const [sourceType, setSourceType] = useState<"repository" | "upload" | "api">("upload");
+  const [contractName, setContractName] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [sourceRef, setSourceRef] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const sourceType = "upload" as const;
 
   const uploadDocument = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!file) {
-      setUploadError("Select a PDF or JPEG file first.");
+    if (!contractName.trim()) {
+      setUploadError("Contract name is required.");
       return;
     }
-
-    if (file.type !== "application/pdf" && file.type !== "image/jpeg") {
-      setUploadError("Only application/pdf and image/jpeg are supported.");
+    if (files.length === 0) {
+      setUploadError("Select one or more files first.");
       return;
+    }
+    for (const file of files) {
+      if (file.type !== "application/pdf" && file.type !== "image/jpeg" && file.type !== "image/png") {
+        setUploadError("Only PDF, JPEG, and PNG files are supported.");
+        return;
+      }
     }
 
     setUploading(true);
     setUploadError(null);
 
     try {
-      const contentBase64 = await toBase64(file);
-      const response = await apiClient.createDocument(
+      const tags = Array.from(
+        new Set(
+          tagsInput
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter((tag) => tag.length > 0)
+        )
+      );
+      const contract = await apiClient.createContract(
         {
-          filename: file.name,
-          mime_type: file.type as "application/pdf" | "image/jpeg",
+          name: contractName.trim(),
           source_type: sourceType,
           source_ref: sourceRef.trim() || undefined,
-          content_base64: contentBase64
+          tags: tags.length > 0 ? tags : undefined
         },
-        { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}` }
+        { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `contract-${Date.now()}` }
       );
 
+      for (const file of files) {
+        const contentBase64 = await toBase64(file);
+        await apiClient.addContractFile(
+          contract.id,
+          {
+            filename: file.name,
+            mime_type: file.type as "application/pdf" | "image/jpeg" | "image/png",
+            source_type: sourceType,
+            source_ref: sourceRef.trim() || undefined,
+            tags: tags.length > 0 ? tags : undefined,
+            content_base64: contentBase64
+          },
+          { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}-${file.name}` }
+        );
+      }
+
       addAuditEvent({
-        type: "document.uploaded",
-        message: `Uploaded ${response.filename}`,
-        metadata: { document_id: response.id, mime_type: response.mime_type }
+        type: "contract.created",
+        message: `Created contract ${contract.name}`,
+        metadata: { contract_id: contract.id, file_count: String(files.length) }
       });
 
-      navigate("/contracts");
+      navigate(`/contracts/${encodeURIComponent(contract.id)}/edit`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed.";
       setUploadError(message);
@@ -78,31 +107,48 @@ export function NewContractPage() {
 
       <form className="panel" onSubmit={uploadDocument}>
         <h3>Upload Contract</h3>
-        <div className="form-grid">
+        <div className="form-grid form-grid-single-column">
           <label>
-            File
+            Contract Name
             <input
-              type="file"
-              accept="application/pdf,image/jpeg"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              value={contractName}
+              onChange={(event) => setContractName(event.target.value)}
+              placeholder="Master Services Agreement 2026"
               required
             />
           </label>
           <label>
-            Source Type
-            <select value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}>
-              <option value="upload">upload</option>
-              <option value="repository">repository</option>
-              <option value="api">api</option>
-            </select>
+            Files
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png"
+              multiple
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+              required
+            />
           </label>
           <label>
             Source Ref
             <input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} placeholder="Optional" />
           </label>
+          <label>
+            Tags
+            <input
+              value={tagsInput}
+              onChange={(event) => setTagsInput(event.target.value)}
+              placeholder="MSA, Vendor, 2026"
+            />
+          </label>
         </div>
+        {files.length > 0 ? (
+          <p className="muted">Upload order: {files.map((file) => file.name).join(" -> ")}</p>
+        ) : null}
         {uploadError ? <p className="error-text">{uploadError}</p> : null}
-        <button type="submit" disabled={uploading}>{uploading ? "Uploading..." : "Upload"}</button>
+        <div className="form-actions-end">
+          <button type="submit" disabled={uploading}>
+            {uploading ? "Uploading..." : "Create Contract"}
+          </button>
+        </div>
       </form>
     </section>
   );

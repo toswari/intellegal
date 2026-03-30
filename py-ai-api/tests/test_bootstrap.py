@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 from py_ai_api.config import get_settings
 from py_ai_api.extraction import ExtractionResult, PageExtraction
 from py_ai_api.indexing import IndexingResult
-from py_ai_api.main import app, get_analysis_pipeline, get_extraction_pipeline, get_indexing_pipeline
+from py_ai_api.main import app, get_analysis_pipeline, get_extraction_pipeline, get_indexing_pipeline, get_search_pipeline
+from py_ai_api.search import SearchSectionsResult, SearchSectionsResultItem
 
 
 def _client_with_env(monkeypatch, *, token: str = "test-token") -> TestClient:
@@ -227,3 +228,45 @@ def test_company_name_analysis_returns_completed_job_with_result(monkeypatch) ->
     payload = response.json()
     assert payload["job_type"] == "analyze_company_name"
     assert payload["result"]["items"][0]["outcome"] == "review"
+
+
+def test_search_sections_returns_completed_job_with_result(monkeypatch) -> None:
+    client = _client_with_env(monkeypatch, token="shared-secret")
+
+    class _FakeSearchPipeline:
+        def search_sections(self, **kwargs) -> SearchSectionsResult:
+            assert kwargs["query_text"] == "payment terms"
+            assert kwargs["document_ids"] == ["doc-1"]
+            assert kwargs["limit"] == 5
+            return SearchSectionsResult(
+                items=[
+                    SearchSectionsResultItem(
+                        document_id="doc-1",
+                        page_number=3,
+                        chunk_id="9",
+                        score=0.88,
+                        snippet_text="... payment terms within thirty days ...",
+                    )
+                ],
+                diagnostics={"strategy": "qdrant_vector"},
+            )
+
+    app.dependency_overrides[get_search_pipeline] = lambda: _FakeSearchPipeline()
+    try:
+        response = client.post(
+            "/internal/v1/search/sections",
+            headers={"X-Internal-Service-Token": "shared-secret"},
+            json={
+                "job_id": "7f891617-7c2a-4f54-8d69-5f6f2d3a4dd1",
+                "query_text": "payment terms",
+                "document_ids": ["doc-1"],
+                "limit": 5,
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_search_pipeline, None)
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["job_type"] == "search_sections"
+    assert payload["result"]["items"][0]["document_id"] == "doc-1"

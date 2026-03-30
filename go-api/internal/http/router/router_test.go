@@ -26,6 +26,9 @@ func (mockAIClient) Extract(_ context.Context, req ai.ExtractRequest) (ai.Extrac
 func (mockAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.IndexResult, error) {
 	return ai.IndexResult{DocumentID: req.DocumentID, Checksum: req.VersionChecksum, Indexed: true}, nil
 }
+func (mockAIClient) SearchSections(_ context.Context, _ ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	return ai.SearchSectionsResult{}, nil
+}
 
 func TestHealthEndpoint(t *testing.T) {
 	api := handlers.NewAPI(slog.New(slog.NewJSONHandler(io.Discard, nil)), mockAIClient{}, nil, nil)

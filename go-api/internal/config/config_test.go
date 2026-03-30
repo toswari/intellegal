@@ -10,6 +10,8 @@ func TestLoadDefaultsWithToken(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("STORAGE_PROVIDER", "")
 	t.Setenv("LOCAL_STORAGE_PATH", "")
+	t.Setenv("MINIO_ENDPOINT", "")
+	t.Setenv("MINIO_BUCKET", "")
 	t.Setenv("DATABASE_PING_TIMEOUT", "")
 
 	cfg, err := Load()
@@ -20,11 +22,14 @@ func TestLoadDefaultsWithToken(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Fatalf("expected default port 8080, got %d", cfg.Port)
 	}
-	if cfg.StorageProvider != "local" {
-		t.Fatalf("expected default storage provider local, got %q", cfg.StorageProvider)
+	if cfg.StorageProvider != "minio" {
+		t.Fatalf("expected default storage provider minio, got %q", cfg.StorageProvider)
 	}
-	if cfg.LocalStoragePath != "./samples/storage" {
-		t.Fatalf("expected default local storage path, got %q", cfg.LocalStoragePath)
+	if cfg.MinIOEndpoint != "minio:9000" {
+		t.Fatalf("expected default minio endpoint, got %q", cfg.MinIOEndpoint)
+	}
+	if cfg.MinIOBucket != "contracts" {
+		t.Fatalf("expected default minio bucket, got %q", cfg.MinIOBucket)
 	}
 	if cfg.DatabasePingTimeout != 5*time.Second {
 		t.Fatalf("expected default database ping timeout 5s, got %s", cfg.DatabasePingTimeout)
@@ -106,6 +111,18 @@ func TestLoadRequiresAzureFields(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresMinIOFields(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("STORAGE_PROVIDER", "minio")
+	t.Setenv("MINIO_ACCESS_KEY", "")
+	t.Setenv("MINIO_SECRET_KEY", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for missing minio storage fields")
+	}
+}
+
 func TestLoadParsesCORSAllowedOrigins(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000, https://app.example.com")
@@ -137,4 +154,6 @@ func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgresql://app:app@localhost:5432/app")
 	t.Setenv("INTERNAL_SERVICE_TOKEN", "test-token")
+	t.Setenv("MINIO_ACCESS_KEY", "minioadmin")
+	t.Setenv("MINIO_SECRET_KEY", "minioadmin")
 }

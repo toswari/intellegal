@@ -16,10 +16,16 @@ describe("ApiClient", () => {
     );
 
     const client = new ApiClient("http://localhost:8080", fetchFn as typeof fetch);
-    await client.listDocuments({ status: "indexed", limit: 50, offset: 10, source_type: "upload" });
+    await client.listDocuments({
+      status: "indexed",
+      limit: 50,
+      offset: 10,
+      source_type: "upload",
+      tags: ["MSA", "Finance"]
+    });
 
     expect(fetchFn).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v1/documents?status=indexed&source_type=upload&limit=50&offset=10",
+      "http://localhost:8080/api/v1/documents?status=indexed&source_type=upload&tag=MSA&tag=Finance&limit=50&offset=10",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -44,7 +50,8 @@ describe("ApiClient", () => {
       {
         filename: "contract.pdf",
         mime_type: "application/pdf",
-        content_base64: "abc"
+        content_base64: "abc",
+        tags: ["MSA"]
       },
       { idempotencyKey: "idem-123" }
     );
@@ -57,6 +64,12 @@ describe("ApiClient", () => {
           "Idempotency-Key": "idem-123",
           "Content-Type": "application/json"
         })
+      })
+    );
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/documents",
+      expect.objectContaining({
+        body: expect.stringContaining('"tags":["MSA"]')
       })
     );
   });
@@ -91,6 +104,61 @@ describe("ApiClient", () => {
     expect(fetchFn).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/documents/00000000-0000-4000-8000-000000000001",
       expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("fetches extracted text for a document", async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          document_id: "00000000-0000-4000-8000-000000000001",
+          filename: "contract.pdf",
+          text: "Contract text",
+          has_text: true
+        }),
+        { status: 200 }
+      )
+    );
+    const client = new ApiClient("http://localhost:8080", fetchFn as typeof fetch);
+
+    await client.getDocumentText("00000000-0000-4000-8000-000000000001");
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/documents/00000000-0000-4000-8000-000000000001/text",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("sends patch request for updateContract", async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "00000000-0000-4000-8000-000000000001",
+          name: "Updated Contract",
+          tags: ["MSA", "Finance"],
+          file_count: 0,
+          created_at: "2025-01-01T00:00:00Z",
+          updated_at: "2025-01-01T00:00:00Z"
+        }),
+        { status: 200 }
+      )
+    );
+    const client = new ApiClient("http://localhost:8080", fetchFn as typeof fetch);
+
+    await client.updateContract("00000000-0000-4000-8000-000000000001", {
+      name: "Updated Contract",
+      tags: ["MSA", "Finance"]
+    });
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/contracts/00000000-0000-4000-8000-000000000001",
+      expect.objectContaining({ method: "PATCH" })
+    );
+    expect(fetchFn).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/contracts/00000000-0000-4000-8000-000000000001",
+      expect.objectContaining({
+        body: expect.stringContaining('"name":"Updated Contract"')
+      })
     );
   });
 

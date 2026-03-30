@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiClient, type CheckResultItem, type CheckRunResponse, type DocumentResponse } from "../api/client";
+import { Link } from "react-router-dom";
+import {
+  apiClient,
+  type CheckResultItem,
+  type CheckRunResponse,
+  type ContractResponse,
+  type DocumentResponse
+} from "../api/client";
 import { listStoredRuns, upsertStoredRun } from "../app/localState";
+import { formatEuropeanDateTime } from "../app/datetime";
 
 type DashboardState = {
   loading: boolean;
   error: string | null;
   documents: DocumentResponse[];
+  contracts: ContractResponse[];
   runs: CheckRunResponse[];
   flaggedDocuments: number;
 };
@@ -14,6 +23,7 @@ const initialState: DashboardState = {
   loading: true,
   error: null,
   documents: [],
+  contracts: [],
   runs: [],
   flaggedDocuments: 0
 };
@@ -28,6 +38,7 @@ export function DashboardPage() {
       setState((prev) => ({ ...prev, loading: true, error: null }));
 
       try {
+        const contractsResp = await apiClient.listContracts({ limit: 200, offset: 0 });
         const documentsResp = await apiClient.listDocuments({ limit: 200, offset: 0 });
         const storedRuns = listStoredRuns().slice(0, 8);
 
@@ -79,6 +90,7 @@ export function DashboardPage() {
           loading: false,
           error: null,
           documents: documentsResp.items,
+          contracts: contractsResp.items,
           runs,
           flaggedDocuments: flagged.size
         });
@@ -113,6 +125,14 @@ export function DashboardPage() {
 
     return summary;
   }, [state.documents]);
+
+  const lastContracts = useMemo(
+    () =>
+      [...state.contracts]
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+        .slice(0, 10),
+    [state.contracts]
+  );
 
   return (
     <section className="page">
@@ -156,14 +176,15 @@ export function DashboardPage() {
         </article>
 
         <article>
-          <h3>Recent Runs</h3>
-          {state.runs.length === 0 ? (
-            <p className="muted">No check runs tracked yet. Start one from the Checks page.</p>
+          <h3>Last 10 Contracts</h3>
+          {lastContracts.length === 0 ? (
+            <p className="muted">No contracts yet. Create one from the Contracts page.</p>
           ) : (
             <ul className="summary-list">
-              {state.runs.slice(0, 5).map((run) => (
-                <li key={run.check_id}>
-                  <code>{run.check_id.slice(0, 8)}</code> {run.check_type} - {run.status}
+              {lastContracts.map((contract) => (
+                <li key={contract.id}>
+                  <Link to={`/contracts/${encodeURIComponent(contract.id)}/edit`}>{contract.name}</Link> -{" "}
+                  {formatEuropeanDateTime(contract.created_at)}
                 </li>
               ))}
             </ul>

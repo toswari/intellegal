@@ -20,6 +20,7 @@ services:
     build:
       context: ./go-api
       dockerfile: Dockerfile
+      target: dev
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DATABASE_PING_TIMEOUT: ${DATABASE_PING_TIMEOUT:-5s}
@@ -27,18 +28,27 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       INTERNAL_AI_BASE_URL: ${INTERNAL_AI_BASE_URL:-http://py-ai-api:8000}
-      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       LOCAL_STORAGE_PATH: ${LOCAL_STORAGE_PATH:-/samples/storage}
       AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT:-}
       AZURE_BLOB_CONTAINER: ${AZURE_BLOB_CONTAINER:-}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-contracts}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
     ports:
       - "${GO_API_PORT:-8080}:8080"
     volumes:
+      - ./go-api:/app
       - ./samples:/samples
+      - go_mod_cache:/go/pkg/mod
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
+        condition: service_started
+      minio:
         condition: service_started
       py-ai-api:
         condition: service_started
@@ -47,6 +57,7 @@ services:
     build:
       context: ./py-ai-api
       dockerfile: Dockerfile
+      target: dev
     environment:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
@@ -58,6 +69,7 @@ services:
     ports:
       - "${PY_AI_API_PORT:-8000}:8000"
     volumes:
+      - ./py-ai-api:/app
       - ./samples:/samples
     depends_on:
       postgres:
@@ -97,9 +109,23 @@ services:
     volumes:
       - redis_data:/data
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
 volumes:
   postgres_data:
   postgres18_data:
   qdrant_data:
   redis_data:
+  minio_data:
   frontend_node_modules:
+  go_mod_cache:

@@ -40,7 +40,7 @@ const (
 
 var (
 	uuidRx             = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	validDocumentMimes = map[string]struct{}{"application/pdf": {}, "image/jpeg": {}}
+	validDocumentMimes = map[string]struct{}{"application/pdf": {}, "image/jpeg": {}, "image/png": {}}
 	validSourceTypes   = map[string]struct{}{"repository": {}, "upload": {}, "api": {}}
 	validDocStatuses   = map[string]struct{}{documentStatusIngested: {}, documentStatusProcessing: {}, documentStatusIndexed: {}, documentStatusFailed: {}}
 )
@@ -50,6 +50,7 @@ type aiClient interface {
 	AnalyzeCompanyName(ctx context.Context, req ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error)
 	Extract(ctx context.Context, req ai.ExtractRequest) (ai.ExtractResult, error)
 	Index(ctx context.Context, req ai.IndexRequest) (ai.IndexResult, error)
+	SearchSections(ctx context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error)
 }
 
 type documentStore interface {
@@ -83,6 +84,9 @@ func (noopAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.IndexResul
 		Indexed:    true,
 	}, nil
 }
+func (noopAIClient) SearchSections(_ context.Context, _ ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	return ai.SearchSectionsResult{Items: []ai.SearchSectionsResultItem{}}, nil
+}
 
 type noopDocumentStore struct{}
 
@@ -109,6 +113,7 @@ type API struct {
 	copier externalCopyClient
 
 	mu          sync.RWMutex
+	contracts   map[string]contract
 	documents   map[string]document
 	checks      map[string]checkRun
 	idempotency map[string]idempotencyRecord
@@ -127,15 +132,29 @@ type idempotencyRecord struct {
 }
 
 type document struct {
+	ID            string
+	ContractID    string
+	SourceType    string
+	SourceRef     string
+	Tags          []string
+	Filename      string
+	MIMEType      string
+	Status        string
+	Checksum      string
+	ExtractedText string
+	StorageKey    string
+	StorageURI    string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type contract struct {
 	ID         string
+	Name       string
 	SourceType string
 	SourceRef  string
-	Filename   string
-	MIMEType   string
-	Status     string
-	Checksum   string
-	StorageKey string
-	StorageURI string
+	Tags       []string
+	FileIDs    []string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -180,6 +199,7 @@ type externalCopyEvent struct {
 }
 
 type createDocumentRequest struct {
+	ContractID    string   `json:"contract_id,omitempty"`
 	SourceType    string   `json:"source_type,omitempty"`
 	SourceRef     string   `json:"source_ref,omitempty"`
 	Filename      string   `json:"filename"`
@@ -189,19 +209,63 @@ type createDocumentRequest struct {
 }
 
 type documentResponse struct {
-	ID         string `json:"id"`
-	SourceType string `json:"source_type,omitempty"`
-	SourceRef  string `json:"source_ref,omitempty"`
-	Filename   string `json:"filename"`
-	MIMEType   string `json:"mime_type"`
-	Status     string `json:"status"`
-	Checksum   string `json:"checksum,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID         string   `json:"id"`
+	ContractID string   `json:"contract_id,omitempty"`
+	SourceType string   `json:"source_type,omitempty"`
+	SourceRef  string   `json:"source_ref,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Filename   string   `json:"filename"`
+	MIMEType   string   `json:"mime_type"`
+	Status     string   `json:"status"`
+	Checksum   string   `json:"checksum,omitempty"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
 }
 
 type documentListResponse struct {
 	Items  []documentResponse `json:"items"`
+	Limit  int                `json:"limit"`
+	Offset int                `json:"offset"`
+	Total  int                `json:"total"`
+}
+
+type documentTextResponse struct {
+	DocumentID string `json:"document_id"`
+	Filename   string `json:"filename"`
+	Text       string `json:"text"`
+	HasText    bool   `json:"has_text"`
+}
+
+type createContractRequest struct {
+	Name       string   `json:"name"`
+	SourceType string   `json:"source_type,omitempty"`
+	SourceRef  string   `json:"source_ref,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+}
+
+type updateContractRequest struct {
+	Name *string   `json:"name,omitempty"`
+	Tags *[]string `json:"tags,omitempty"`
+}
+
+type reorderContractFilesRequest struct {
+	FileIDs []string `json:"file_ids"`
+}
+
+type contractResponse struct {
+	ID         string             `json:"id"`
+	Name       string             `json:"name"`
+	SourceType string             `json:"source_type,omitempty"`
+	SourceRef  string             `json:"source_ref,omitempty"`
+	Tags       []string           `json:"tags,omitempty"`
+	FileCount  int                `json:"file_count"`
+	Files      []documentResponse `json:"files,omitempty"`
+	CreatedAt  string             `json:"created_at"`
+	UpdatedAt  string             `json:"updated_at"`
+}
+
+type contractListResponse struct {
+	Items  []contractResponse `json:"items"`
 	Limit  int                `json:"limit"`
 	Offset int                `json:"offset"`
 	Total  int                `json:"total"`
@@ -240,6 +304,26 @@ type checkResultsResponse struct {
 	Items   []checkResultItem `json:"items"`
 }
 
+type contractSearchRequest struct {
+	QueryText   string   `json:"query_text"`
+	DocumentIDs []string `json:"document_ids,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+}
+
+type contractSearchResultItem struct {
+	DocumentID  string  `json:"document_id"`
+	ContractID  string  `json:"contract_id,omitempty"`
+	Filename    string  `json:"filename"`
+	PageNumber  int     `json:"page_number"`
+	ChunkID     string  `json:"chunk_id,omitempty"`
+	Score       float64 `json:"score"`
+	SnippetText string  `json:"snippet_text"`
+}
+
+type contractSearchResponse struct {
+	Items []contractSearchResultItem `json:"items"`
+}
+
 type errorEnvelope struct {
 	Error errorPayload `json:"error"`
 }
@@ -267,6 +351,7 @@ func NewAPI(logger slogLogger, aiClient aiClient, store documentStore, copier ex
 		ai:          aiClient,
 		store:       store,
 		copier:      copier,
+		contracts:   map[string]contract{},
 		documents:   map[string]document{},
 		checks:      map[string]checkRun{},
 		idempotency: map[string]idempotencyRecord{},
@@ -280,17 +365,46 @@ func (a *API) CreateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Filename) == "" {
-		writeError(w, http.StatusBadRequest, "invalid_argument", "filename is required", false, nil)
-		return
-	}
-	if _, ok := validDocumentMimes[req.MIMEType]; !ok {
-		writeError(w, http.StatusBadRequest, "invalid_argument", "unsupported mime_type", false, nil)
-		return
-	}
-	payload, err := base64.StdEncoding.DecodeString(req.ContentBase64)
+	doc, err := a.createDocumentFromRequest(r.Context(), req, middleware.GetRequestID(r.Context()))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_argument", "content_base64 must be valid base64", false, nil)
+		switch err.Error() {
+		case "filename is required", "unsupported mime_type", "content_base64 must be valid base64", "unsupported source_type":
+			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+			return
+		case "contract_id must be a valid UUID":
+			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+			return
+		case "contract not found":
+			writeError(w, http.StatusNotFound, "not_found", err.Error(), false, nil)
+			return
+		case "failed to persist document":
+			writeError(w, http.StatusBadGateway, "storage_unavailable", err.Error(), true, nil)
+			return
+		case "failed to extract document text", "failed to index document text":
+			writeError(w, http.StatusBadGateway, "upstream_unavailable", err.Error(), true, nil)
+			return
+		default:
+			if strings.HasPrefix(err.Error(), "tag ") || strings.HasPrefix(err.Error(), "at most ") {
+				writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to create document", true, nil)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, mapDocument(doc))
+}
+
+func (a *API) CreateContract(w http.ResponseWriter, r *http.Request) {
+	var req createContractRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "name is required", false, nil)
 		return
 	}
 
@@ -303,80 +417,302 @@ func (a *API) CreateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
-	docID := newUUID()
-	checksum := sha256Hex(payload)
-	objectKey := fmt.Sprintf("documents/%s%s", docID, extensionForFilename(req.Filename, req.MIMEType))
-	storageURI, err := a.store.Put(r.Context(), objectKey, bytes.NewReader(payload))
+	tags, err := normalizeTags(req.Tags)
 	if err != nil {
-		a.logger.Error("document storage failed", "document_id", docID, "error", err)
-		writeError(w, http.StatusBadGateway, "storage_unavailable", "failed to persist document", true, nil)
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
 		return
 	}
 
-	doc := document{
-		ID:         docID,
+	now := time.Now().UTC()
+	item := contract{
+		ID:         newUUID(),
+		Name:       name,
 		SourceType: sourceType,
 		SourceRef:  req.SourceRef,
-		Filename:   req.Filename,
-		MIMEType:   req.MIMEType,
-		Status:     documentStatusProcessing,
-		Checksum:   checksum,
-		StorageKey: objectKey,
-		StorageURI: storageURI,
+		Tags:       tags,
+		FileIDs:    nil,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
 
 	a.mu.Lock()
-	a.documents[docID] = doc
+	a.contracts[item.ID] = item
 	a.mu.Unlock()
-	a.emitAuditEvent("document.created", "document", docID, map[string]any{
-		"source_type": sourceType,
-		"mime_type":   req.MIMEType,
-		"checksum":    checksum,
+
+	a.emitAuditEvent("contract.created", "contract", item.ID, map[string]any{
+		"name":        item.Name,
+		"source_type": item.SourceType,
+	})
+	writeJSON(w, http.StatusCreated, mapContract(item, nil))
+}
+
+func (a *API) ListContracts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "limit must be between 1 and 200", false, nil)
+			return
+		}
+		limit = n
+	}
+	offset := 0
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "offset must be >= 0", false, nil)
+			return
+		}
+		offset = n
+	}
+
+	a.mu.RLock()
+	items := make([]contract, 0, len(a.contracts))
+	for _, item := range a.contracts {
+		items = append(items, item)
+	}
+	a.mu.RUnlock()
+
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	total := len(items)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	respItems := make([]contractResponse, 0, end-offset)
+	for _, item := range items[offset:end] {
+		respItems = append(respItems, mapContract(item, nil))
+	}
+
+	writeJSON(w, http.StatusOK, contractListResponse{Items: respItems, Limit: limit, Offset: offset, Total: total})
+}
+
+func (a *API) GetContract(w http.ResponseWriter, r *http.Request) {
+	contractID := strings.TrimSpace(r.PathValue("contract_id"))
+	if !isUUID(contractID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
+		return
+	}
+
+	a.mu.RLock()
+	item, ok := a.contracts[contractID]
+	if !ok {
+		a.mu.RUnlock()
+		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
+		return
+	}
+	files := make([]documentResponse, 0, len(item.FileIDs))
+	for _, fileID := range item.FileIDs {
+		if doc, exists := a.documents[fileID]; exists {
+			files = append(files, mapDocument(doc))
+		}
+	}
+	a.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, mapContract(item, files))
+}
+
+func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
+	contractID := strings.TrimSpace(r.PathValue("contract_id"))
+	if !isUUID(contractID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
+		return
+	}
+
+	var req updateContractRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Name == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "at least one of name or tags is required", false, nil)
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	item, ok := a.contracts[contractID]
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
+		return
+	}
+
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "name is required", false, nil)
+			return
+		}
+		item.Name = name
+	}
+
+	if req.Tags != nil {
+		tags, err := normalizeTags(*req.Tags)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+			return
+		}
+		item.Tags = tags
+	}
+
+	item.UpdatedAt = time.Now().UTC()
+	a.contracts[contractID] = item
+	a.emitAuditEvent("contract.updated", "contract", contractID, map[string]any{
+		"name": item.Name,
+		"tags": item.Tags,
 	})
 
-	extractResult, err := a.ai.Extract(r.Context(), ai.ExtractRequest{
-		JobID:      newUUID(),
-		RequestID:  middleware.GetRequestID(r.Context()),
-		DocumentID: docID,
-		StorageURI: storageURI,
-		MIMEType:   req.MIMEType,
-	})
+	files := make([]documentResponse, 0, len(item.FileIDs))
+	for _, fileID := range item.FileIDs {
+		if doc, exists := a.documents[fileID]; exists {
+			files = append(files, mapDocument(doc))
+		}
+	}
+	writeJSON(w, http.StatusOK, mapContract(item, files))
+}
+
+func (a *API) DeleteContract(w http.ResponseWriter, r *http.Request) {
+	contractID := strings.TrimSpace(r.PathValue("contract_id"))
+	if !isUUID(contractID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
+		return
+	}
+
+	a.mu.RLock()
+	item, ok := a.contracts[contractID]
+	a.mu.RUnlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
+		return
+	}
+
+	for _, fileID := range item.FileIDs {
+		a.mu.RLock()
+		doc, exists := a.documents[fileID]
+		a.mu.RUnlock()
+		if !exists {
+			continue
+		}
+		if err := a.store.Delete(r.Context(), doc.StorageKey); err != nil {
+			a.logger.Error("document storage delete failed", "document_id", fileID, "error", err)
+			writeError(w, http.StatusBadGateway, "storage_unavailable", "failed to delete document asset", true, nil)
+			return
+		}
+	}
+
+	a.mu.Lock()
+	delete(a.contracts, contractID)
+	for _, fileID := range item.FileIDs {
+		delete(a.documents, fileID)
+	}
+	a.mu.Unlock()
+	a.emitAuditEvent("contract.deleted", "contract", contractID, map[string]any{"file_count": len(item.FileIDs)})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) AddContractFile(w http.ResponseWriter, r *http.Request) {
+	contractID := strings.TrimSpace(r.PathValue("contract_id"))
+	if !isUUID(contractID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
+		return
+	}
+
+	var req createDocumentRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	req.ContractID = contractID
+	doc, err := a.createDocumentFromRequest(r.Context(), req, middleware.GetRequestID(r.Context()))
 	if err != nil {
-		a.markDocumentFailed(docID, err)
-		writeError(w, http.StatusBadGateway, "upstream_unavailable", "failed to extract document text", true, nil)
-		return
+		switch err.Error() {
+		case "filename is required", "unsupported mime_type", "content_base64 must be valid base64", "unsupported source_type":
+			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+			return
+		case "contract_id must be a valid UUID":
+			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+			return
+		case "contract not found":
+			writeError(w, http.StatusNotFound, "not_found", err.Error(), false, nil)
+			return
+		case "failed to persist document":
+			writeError(w, http.StatusBadGateway, "storage_unavailable", err.Error(), true, nil)
+			return
+		case "failed to extract document text", "failed to index document text":
+			writeError(w, http.StatusBadGateway, "upstream_unavailable", err.Error(), true, nil)
+			return
+		default:
+			if strings.HasPrefix(err.Error(), "tag ") || strings.HasPrefix(err.Error(), "at most ") {
+				writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to create document", true, nil)
+			return
+		}
 	}
 
-	pages := make([]ai.IndexPageInput, 0, len(extractResult.Pages))
-	for _, page := range extractResult.Pages {
-		pages = append(pages, ai.IndexPageInput{
-			PageNumber: page.PageNumber,
-			Text:       page.Text,
-		})
-	}
-
-	if _, err := a.ai.Index(r.Context(), ai.IndexRequest{
-		JobID:           newUUID(),
-		RequestID:       middleware.GetRequestID(r.Context()),
-		DocumentID:      docID,
-		VersionChecksum: checksum,
-		ExtractedText:   extractResult.Text,
-		Pages:           pages,
-		SourceURI:       storageURI,
-		Reindex:         false,
-	}); err != nil {
-		a.markDocumentFailed(docID, err)
-		writeError(w, http.StatusBadGateway, "upstream_unavailable", "failed to index document text", true, nil)
-		return
-	}
-
-	doc = a.markDocumentIndexed(docID)
-	a.emitAuditEvent("document.indexed", "document", docID, map[string]any{"status": doc.Status})
-	a.enqueueExternalCopy(doc, middleware.GetRequestID(r.Context()))
 	writeJSON(w, http.StatusCreated, mapDocument(doc))
+}
+
+func (a *API) ReorderContractFiles(w http.ResponseWriter, r *http.Request) {
+	contractID := strings.TrimSpace(r.PathValue("contract_id"))
+	if !isUUID(contractID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
+		return
+	}
+
+	var req reorderContractFilesRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	item, ok := a.contracts[contractID]
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
+		return
+	}
+
+	if len(req.FileIDs) != len(item.FileIDs) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids must contain all contract file ids exactly once", false, nil)
+		return
+	}
+
+	expected := make(map[string]struct{}, len(item.FileIDs))
+	for _, id := range item.FileIDs {
+		expected[id] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(req.FileIDs))
+	for _, id := range req.FileIDs {
+		if _, ok := expected[id]; !ok {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids contains an unknown file id", false, nil)
+			return
+		}
+		if _, ok := seen[id]; ok {
+			writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids must not contain duplicates", false, nil)
+			return
+		}
+		seen[id] = struct{}{}
+	}
+
+	item.FileIDs = append([]string{}, req.FileIDs...)
+	item.UpdatedAt = time.Now().UTC()
+	a.contracts[contractID] = item
+	a.emitAuditEvent("contract.files_reordered", "contract", contractID, map[string]any{"file_count": len(item.FileIDs)})
+
+	files := make([]documentResponse, 0, len(item.FileIDs))
+	for _, fileID := range item.FileIDs {
+		if doc, exists := a.documents[fileID]; exists {
+			files = append(files, mapDocument(doc))
+		}
+	}
+	writeJSON(w, http.StatusOK, mapContract(item, files))
 }
 
 func (a *API) ListDocuments(w http.ResponseWriter, r *http.Request) {
@@ -395,6 +731,11 @@ func (a *API) ListDocuments(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_argument", "invalid source_type filter", false, nil)
 			return
 		}
+	}
+	tagFilters, err := parseTagFilters(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
+		return
 	}
 
 	limit := 50
@@ -423,6 +764,9 @@ func (a *API) ListDocuments(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if sourceType != "" && doc.SourceType != sourceType {
+			continue
+		}
+		if len(tagFilters) > 0 && !documentHasAnyTag(doc, tagFilters) {
 			continue
 		}
 		items = append(items, doc)
@@ -494,6 +838,19 @@ func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delete(a.documents, documentID)
+	if doc.ContractID != "" {
+		if item, exists := a.contracts[doc.ContractID]; exists {
+			filtered := make([]string, 0, len(item.FileIDs))
+			for _, id := range item.FileIDs {
+				if id != documentID {
+					filtered = append(filtered, id)
+				}
+			}
+			item.FileIDs = filtered
+			item.UpdatedAt = time.Now().UTC()
+			a.contracts[doc.ContractID] = item
+		}
+	}
 
 	deletedChecks := make(map[string]struct{})
 	for checkID, run := range a.checks {
@@ -523,6 +880,30 @@ func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		"copy_events_deleted": deletedCopyEvents,
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) GetDocumentText(w http.ResponseWriter, r *http.Request) {
+	documentID := strings.TrimSpace(r.PathValue("document_id"))
+	if !isUUID(documentID) {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
+		return
+	}
+
+	a.mu.RLock()
+	doc, ok := a.documents[documentID]
+	a.mu.RUnlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "document not found", false, nil)
+		return
+	}
+
+	text := strings.TrimSpace(doc.ExtractedText)
+	writeJSON(w, http.StatusOK, documentTextResponse{
+		DocumentID: doc.ID,
+		Filename:   doc.Filename,
+		Text:       text,
+		HasText:    text != "",
+	})
 }
 
 func (a *API) CreateClauseCheck(w http.ResponseWriter, r *http.Request) {
@@ -629,6 +1010,85 @@ func (a *API) GetCheckResults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, checkResultsResponse{CheckID: check.CheckID, Status: check.Status, Items: check.Items})
+}
+
+func (a *API) SearchContracts(w http.ResponseWriter, r *http.Request) {
+	var req contractSearchRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	queryText := strings.TrimSpace(req.QueryText)
+	if len(queryText) < 2 {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "query_text must be at least 2 characters", false, nil)
+		return
+	}
+
+	limit := req.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	if limit < 0 || limit > 50 {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "limit must be between 1 and 50", false, nil)
+		return
+	}
+
+	var resolvedDocIDs []string
+	var err error
+	if len(req.DocumentIDs) > 0 {
+		resolvedDocIDs, err = a.resolveDocumentIDs(req.DocumentIDs)
+		if err != nil {
+			handleCreateCheckError(w, err)
+			return
+		}
+	} else {
+		a.mu.RLock()
+		resolvedDocIDs = make([]string, 0, len(a.documents))
+		for id := range a.documents {
+			resolvedDocIDs = append(resolvedDocIDs, id)
+		}
+		a.mu.RUnlock()
+		sort.Strings(resolvedDocIDs)
+	}
+
+	if len(resolvedDocIDs) == 0 {
+		writeJSON(w, http.StatusOK, contractSearchResponse{Items: []contractSearchResultItem{}})
+		return
+	}
+
+	result, err := a.ai.SearchSections(context.Background(), ai.SearchSectionsRequest{
+		JobID:       newUUID(),
+		RequestID:   middleware.GetRequestID(r.Context()),
+		QueryText:   queryText,
+		DocumentIDs: resolvedDocIDs,
+		Limit:       limit,
+	})
+	if err != nil {
+		a.logger.Error("contract search failed", "error", err)
+		writeError(w, http.StatusBadGateway, "search_unavailable", "semantic search is temporarily unavailable", true, nil)
+		return
+	}
+
+	a.mu.RLock()
+	items := make([]contractSearchResultItem, 0, len(result.Items))
+	for _, item := range result.Items {
+		doc, ok := a.documents[item.DocumentID]
+		if !ok {
+			continue
+		}
+		items = append(items, contractSearchResultItem{
+			DocumentID:  item.DocumentID,
+			ContractID:  doc.ContractID,
+			Filename:    doc.Filename,
+			PageNumber:  item.PageNumber,
+			ChunkID:     item.ChunkID,
+			Score:       item.Score,
+			SnippetText: item.SnippetText,
+		})
+	}
+	a.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, contractSearchResponse{Items: items})
 }
 
 var errIdempotencyConflict = errors.New("idempotency conflict")
@@ -979,11 +1439,141 @@ func handleCreateCheckError(w http.ResponseWriter, err error) {
 	}
 }
 
+func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentRequest, requestID string) (document, error) {
+	if strings.TrimSpace(req.Filename) == "" {
+		return document{}, errors.New("filename is required")
+	}
+	if _, ok := validDocumentMimes[req.MIMEType]; !ok {
+		return document{}, errors.New("unsupported mime_type")
+	}
+	payload, err := base64.StdEncoding.DecodeString(req.ContentBase64)
+	if err != nil {
+		return document{}, errors.New("content_base64 must be valid base64")
+	}
+
+	sourceType := req.SourceType
+	if sourceType == "" {
+		sourceType = "upload"
+	}
+	if _, ok := validSourceTypes[sourceType]; !ok {
+		return document{}, errors.New("unsupported source_type")
+	}
+
+	tags, err := normalizeTags(req.Tags)
+	if err != nil {
+		return document{}, err
+	}
+
+	contractID := strings.TrimSpace(req.ContractID)
+	if contractID != "" {
+		if !isUUID(contractID) {
+			return document{}, errors.New("contract_id must be a valid UUID")
+		}
+		a.mu.RLock()
+		_, exists := a.contracts[contractID]
+		a.mu.RUnlock()
+		if !exists {
+			return document{}, errors.New("contract not found")
+		}
+	}
+
+	now := time.Now().UTC()
+	docID := newUUID()
+	checksum := sha256Hex(payload)
+	objectKey := fmt.Sprintf("documents/%s%s", docID, extensionForFilename(req.Filename, req.MIMEType))
+	storageURI, err := a.store.Put(ctx, objectKey, bytes.NewReader(payload))
+	if err != nil {
+		a.logger.Error("document storage failed", "document_id", docID, "error", err)
+		return document{}, errors.New("failed to persist document")
+	}
+
+	doc := document{
+		ID:         docID,
+		ContractID: contractID,
+		SourceType: sourceType,
+		SourceRef:  req.SourceRef,
+		Tags:       tags,
+		Filename:   req.Filename,
+		MIMEType:   req.MIMEType,
+		Status:     documentStatusProcessing,
+		Checksum:   checksum,
+		StorageKey: objectKey,
+		StorageURI: storageURI,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	a.mu.Lock()
+	a.documents[docID] = doc
+	if contractID != "" {
+		item := a.contracts[contractID]
+		item.FileIDs = append(item.FileIDs, docID)
+		item.UpdatedAt = now
+		a.contracts[contractID] = item
+	}
+	a.mu.Unlock()
+
+	a.emitAuditEvent("document.created", "document", docID, map[string]any{
+		"source_type": sourceType,
+		"mime_type":   req.MIMEType,
+		"checksum":    checksum,
+		"tags":        tags,
+		"contract_id": contractID,
+	})
+
+	extractResult, err := a.ai.Extract(ctx, ai.ExtractRequest{
+		JobID:      newUUID(),
+		RequestID:  requestID,
+		DocumentID: docID,
+		StorageURI: storageURI,
+		MIMEType:   req.MIMEType,
+	})
+	if err != nil {
+		a.markDocumentFailed(docID, err)
+		return document{}, errors.New("failed to extract document text")
+	}
+
+	pages := make([]ai.IndexPageInput, 0, len(extractResult.Pages))
+	for _, page := range extractResult.Pages {
+		pages = append(pages, ai.IndexPageInput{
+			PageNumber: page.PageNumber,
+			Text:       page.Text,
+		})
+	}
+
+	if _, err := a.ai.Index(ctx, ai.IndexRequest{
+		JobID:           newUUID(),
+		RequestID:       requestID,
+		DocumentID:      docID,
+		VersionChecksum: checksum,
+		ExtractedText:   extractResult.Text,
+		Pages:           pages,
+		SourceURI:       storageURI,
+		Reindex:         false,
+	}); err != nil {
+		a.markDocumentFailed(docID, err)
+		return document{}, errors.New("failed to index document text")
+	}
+
+	doc.ExtractedText = combineExtractedText(extractResult)
+	doc.UpdatedAt = time.Now().UTC()
+	a.mu.Lock()
+	a.documents[docID] = doc
+	a.mu.Unlock()
+
+	doc = a.markDocumentIndexed(docID)
+	a.emitAuditEvent("document.indexed", "document", docID, map[string]any{"status": doc.Status})
+	a.enqueueExternalCopy(doc, requestID)
+	return doc, nil
+}
+
 func mapDocument(doc document) documentResponse {
 	return documentResponse{
 		ID:         doc.ID,
+		ContractID: doc.ContractID,
 		SourceType: doc.SourceType,
 		SourceRef:  doc.SourceRef,
+		Tags:       doc.Tags,
 		Filename:   doc.Filename,
 		MIMEType:   doc.MIMEType,
 		Status:     doc.Status,
@@ -991,6 +1581,44 @@ func mapDocument(doc document) documentResponse {
 		CreatedAt:  doc.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:  doc.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+func mapContract(item contract, files []documentResponse) contractResponse {
+	return contractResponse{
+		ID:         item.ID,
+		Name:       item.Name,
+		SourceType: item.SourceType,
+		SourceRef:  item.SourceRef,
+		Tags:       item.Tags,
+		FileCount:  len(item.FileIDs),
+		Files:      files,
+		CreatedAt:  item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  item.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func combineExtractedText(result ai.ExtractResult) string {
+	if strings.TrimSpace(result.Text) != "" {
+		return strings.TrimSpace(result.Text)
+	}
+	if len(result.Pages) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for i, page := range result.Pages {
+		content := strings.TrimSpace(page.Text)
+		if content == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(content)
+		if i < len(result.Pages)-1 {
+			builder.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -1042,12 +1670,15 @@ func newUUID() string {
 
 func extensionForFilename(filename, mimeType string) string {
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filename)))
-	if ext == ".pdf" || ext == ".jpg" || ext == ".jpeg" {
+	if ext == ".pdf" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
 		return ext
 	}
 
 	if mimeType == "application/pdf" {
 		return ".pdf"
+	}
+	if mimeType == "image/png" {
+		return ".png"
 	}
 
 	return ".jpg"
@@ -1056,6 +1687,65 @@ func extensionForFilename(filename, mimeType string) string {
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeTags(input []string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+
+	const maxTags = 20
+	const maxTagLength = 50
+
+	tags := make([]string, 0, len(input))
+	seen := make(map[string]struct{}, len(input))
+	for _, raw := range input {
+		tag := strings.TrimSpace(raw)
+		if tag == "" {
+			continue
+		}
+		if len(tag) > maxTagLength {
+			return nil, fmt.Errorf("tag must be at most %d characters", maxTagLength)
+		}
+		key := strings.ToLower(tag)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		tags = append(tags, tag)
+		if len(tags) > maxTags {
+			return nil, fmt.Errorf("at most %d tags are allowed", maxTags)
+		}
+	}
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	return tags, nil
+}
+
+func parseTagFilters(q map[string][]string) ([]string, error) {
+	raw := append([]string{}, q["tag"]...)
+	if extra := strings.TrimSpace(strings.Join(q["tags"], ",")); extra != "" {
+		raw = append(raw, strings.Split(extra, ",")...)
+	}
+	return normalizeTags(raw)
+}
+
+func documentHasAnyTag(doc document, filters []string) bool {
+	if len(doc.Tags) == 0 || len(filters) == 0 {
+		return false
+	}
+
+	docTags := make(map[string]struct{}, len(doc.Tags))
+	for _, tag := range doc.Tags {
+		docTags[strings.ToLower(strings.TrimSpace(tag))] = struct{}{}
+	}
+	for _, filter := range filters {
+		if _, ok := docTags[strings.ToLower(filter)]; ok {
 			return true
 		}
 	}

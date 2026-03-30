@@ -36,6 +36,22 @@ func TestNewAdapterAzurePlaceholder(t *testing.T) {
 	}
 }
 
+func TestNewAdapterMinIO(t *testing.T) {
+	adapter, err := NewAdapter(FactoryConfig{
+		Provider:       "minio",
+		MinIOEndpoint:  "localhost:9000",
+		MinIOAccessKey: "minioadmin",
+		MinIOSecretKey: "minioadmin",
+		MinIOBucket:    "contracts",
+	})
+	if err != nil {
+		t.Fatalf("expected minio adapter, got error: %v", err)
+	}
+	if _, ok := adapter.(*MinIOAdapter); !ok {
+		t.Fatalf("expected MinIOAdapter type, got %T", adapter)
+	}
+}
+
 func TestNewAdapterUnsupportedProvider(t *testing.T) {
 	_, err := NewAdapter(FactoryConfig{Provider: "s3"})
 	if err == nil {

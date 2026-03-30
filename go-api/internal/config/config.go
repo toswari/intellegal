@@ -30,6 +30,11 @@ type Config struct {
 	LocalStoragePath     string
 	AzureStorageAccount  string
 	AzureBlobContainer   string
+	MinIOEndpoint        string
+	MinIOAccessKey       string
+	MinIOSecretKey       string
+	MinIOBucket          string
+	MinIOUseSSL          bool
 }
 
 func Load() (Config, error) {
@@ -43,8 +48,10 @@ func Load() (Config, error) {
 		InternalAIBaseURL:    "http://localhost:8000",
 		ExternalCopyTimeout:  8 * time.Second,
 		ExternalCopyRetries:  3,
-		StorageProvider:      "local",
+		StorageProvider:      "minio",
 		LocalStoragePath:     "./samples/storage",
+		MinIOEndpoint:        "minio:9000",
+		MinIOBucket:          "contracts",
 	}
 
 	if v := os.Getenv("GO_API_PORT"); v != "" {
@@ -135,7 +142,7 @@ func Load() (Config, error) {
 
 	if v := strings.TrimSpace(os.Getenv("STORAGE_PROVIDER")); v != "" {
 		switch strings.ToLower(v) {
-		case "local", "azure":
+		case "local", "azure", "minio":
 			cfg.StorageProvider = strings.ToLower(v)
 		default:
 			return Config{}, fmt.Errorf("invalid STORAGE_PROVIDER: %q", v)
@@ -152,6 +159,25 @@ func Load() (Config, error) {
 
 	if v := strings.TrimSpace(os.Getenv("AZURE_BLOB_CONTAINER")); v != "" {
 		cfg.AzureBlobContainer = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MINIO_ENDPOINT")); v != "" {
+		cfg.MinIOEndpoint = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MINIO_ACCESS_KEY")); v != "" {
+		cfg.MinIOAccessKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MINIO_SECRET_KEY")); v != "" {
+		cfg.MinIOSecretKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MINIO_BUCKET")); v != "" {
+		cfg.MinIOBucket = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MINIO_USE_SSL")); v != "" {
+		useSSL, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid MINIO_USE_SSL: %q", v)
+		}
+		cfg.MinIOUseSSL = useSSL
 	}
 
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
@@ -172,6 +198,20 @@ func Load() (Config, error) {
 		}
 		if strings.TrimSpace(cfg.AzureBlobContainer) == "" {
 			return Config{}, errors.New("AZURE_BLOB_CONTAINER is not set")
+		}
+	}
+	if cfg.StorageProvider == "minio" {
+		if strings.TrimSpace(cfg.MinIOEndpoint) == "" {
+			return Config{}, errors.New("MINIO_ENDPOINT is not set")
+		}
+		if strings.TrimSpace(cfg.MinIOAccessKey) == "" {
+			return Config{}, errors.New("MINIO_ACCESS_KEY is not set")
+		}
+		if strings.TrimSpace(cfg.MinIOSecretKey) == "" {
+			return Config{}, errors.New("MINIO_SECRET_KEY is not set")
+		}
+		if strings.TrimSpace(cfg.MinIOBucket) == "" {
+			return Config{}, errors.New("MINIO_BUCKET is not set")
 		}
 	}
 

@@ -35,6 +35,20 @@ class _FakeQdrantClient:
     def upsert(self, **kwargs: object) -> None:
         self.calls.append(("upsert", kwargs))
 
+    def search(self, **kwargs: object):
+        self.calls.append(("search", kwargs))
+
+        class _Result:
+            score = 0.81
+            payload = {
+                "document_id": "doc-1",
+                "chunk_id": 4,
+                "page_number": 2,
+                "text": "Payment terms should be net 30.",
+            }
+
+        return [_Result()]
+
 
 def test_build_collection_schema_defaults() -> None:
     schema = build_collection_schema(Settings())
@@ -78,3 +92,17 @@ def test_chunk_ops_call_expected_qdrant_methods() -> None:
     assert "count" in call_names
     assert "delete" in call_names
     assert "upsert" in call_names
+
+
+def test_search_chunks_returns_filtered_payload() -> None:
+    client = _FakeQdrantClient()
+    service = QdrantService(Settings(), client=client)
+
+    results = service.search_chunks(query_vector=[0.1, 0.2], document_ids=["doc-1"], limit=5)
+
+    assert len(results) == 1
+    assert results[0]["document_id"] == "doc-1"
+    assert results[0]["chunk_id"] == "4"
+    assert results[0]["page_number"] == 2
+    call_names = [name for name, _ in client.calls]
+    assert "search" in call_names

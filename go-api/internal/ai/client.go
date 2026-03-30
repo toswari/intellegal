@@ -98,6 +98,27 @@ type IndexResult struct {
 	Diagnostics   map[string]any `json:"diagnostics"`
 }
 
+type SearchSectionsRequest struct {
+	JobID       string   `json:"job_id"`
+	RequestID   string   `json:"request_id,omitempty"`
+	QueryText   string   `json:"query_text"`
+	DocumentIDs []string `json:"document_ids,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+}
+
+type SearchSectionsResultItem struct {
+	DocumentID  string  `json:"document_id"`
+	PageNumber  int     `json:"page_number"`
+	ChunkID     string  `json:"chunk_id,omitempty"`
+	Score       float64 `json:"score"`
+	SnippetText string  `json:"snippet_text"`
+}
+
+type SearchSectionsResult struct {
+	Items       []SearchSectionsResultItem `json:"items"`
+	Diagnostics map[string]any             `json:"diagnostics"`
+}
+
 type acceptedJobResponse[T any] struct {
 	JobID   string `json:"job_id"`
 	Status  string `json:"status"`
@@ -149,6 +170,14 @@ func (c *Client) Index(ctx context.Context, req IndexRequest) (IndexResult, erro
 	var out acceptedJobResponse[IndexResult]
 	if err := c.postJSONWithResponse(ctx, "/internal/v1/index", req, &out); err != nil {
 		return IndexResult{}, err
+	}
+	return out.Result, nil
+}
+
+func (c *Client) SearchSections(ctx context.Context, req SearchSectionsRequest) (SearchSectionsResult, error) {
+	var out acceptedJobResponse[SearchSectionsResult]
+	if err := c.postJSONWithResponse(ctx, "/internal/v1/search/sections", req, &out); err != nil {
+		return SearchSectionsResult{}, err
 	}
 	return out.Result, nil
 }

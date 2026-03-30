@@ -7,6 +7,7 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     apiClient: {
+      listContracts: vi.fn().mockResolvedValue({ items: [], limit: 200, offset: 0, total: 0 }),
       listDocuments: vi.fn().mockResolvedValue({ items: [], limit: 200, offset: 0, total: 0 }),
       getCheckRun: vi.fn().mockResolvedValue({
         check_id: "00000000-0000-4000-8000-000000000000",
@@ -19,7 +20,22 @@ vi.mock("../api/client", async (importOriginal) => {
         status: "completed",
         items: []
       }),
+      getDocument: vi.fn().mockResolvedValue({
+        id: "00000000-0000-4000-8000-000000000000",
+        filename: "contract.pdf",
+        mime_type: "application/pdf",
+        status: "indexed",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z"
+      }),
+      getDocumentText: vi.fn().mockResolvedValue({
+        document_id: "00000000-0000-4000-8000-000000000000",
+        filename: "contract.pdf",
+        text: "test",
+        has_text: true
+      }),
       createDocument: vi.fn(),
+      deleteDocument: vi.fn(),
       startClausePresenceCheck: vi.fn(),
       startCompanyNameCheck: vi.fn()
     }
@@ -29,6 +45,7 @@ import { AppShell } from "./AppShell";
 import { AuditPage } from "../pages/AuditPage";
 import { ChecksPage } from "../pages/ChecksPage";
 import { ContractsPage } from "../pages/ContractsPage";
+import { CompareContractsPage } from "../pages/CompareContractsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { NewContractPage } from "../pages/NewContractPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -44,6 +61,7 @@ function renderAt(path: string) {
           { index: true, element: <DashboardPage /> },
           { path: "contracts", element: <ContractsPage /> },
           { path: "contracts/new", element: <NewContractPage /> },
+          { path: "contracts/compare", element: <CompareContractsPage /> },
           { path: "checks", element: <ChecksPage /> },
           { path: "results", element: <ResultsPage /> },
           { path: "audit", element: <AuditPage /> }

@@ -25,7 +25,7 @@ export type StoredRunResults = {
 export type AuditEvent = {
   id: string;
   timestamp: string;
-  type: "document.uploaded" | "check.started" | "check.updated" | "results.loaded" | "run.tracked";
+  type: "document.uploaded" | "contract.created" | "check.started" | "check.updated" | "results.loaded" | "run.tracked";
   message: string;
   metadata?: Record<string, string>;
 };

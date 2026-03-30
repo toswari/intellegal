@@ -14,10 +14,12 @@ type capturingAIClient struct {
 	companyReq *ai.AnalyzeCompanyNameRequest
 	extractReq *ai.ExtractRequest
 	indexReq   *ai.IndexRequest
+	searchReq  *ai.SearchSectionsRequest
 	clauseErr  error
 	companyErr error
 	extractErr error
 	indexErr   error
+	searchErr  error
 }
 
 func (c *capturingAIClient) AnalyzeClause(_ context.Context, req ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
@@ -88,6 +90,16 @@ func (c *capturingAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.In
 		ChunkCount: 1,
 		Indexed:    true,
 	}, nil
+}
+
+func (c *capturingAIClient) SearchSections(_ context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	copyReq := req
+	copyReq.DocumentIDs = append([]string(nil), req.DocumentIDs...)
+	c.searchReq = &copyReq
+	if c.searchErr != nil {
+		return ai.SearchSectionsResult{}, c.searchErr
+	}
+	return ai.SearchSectionsResult{Items: []ai.SearchSectionsResultItem{}}, nil
 }
 
 func TestRunClauseCheckMarksCompletedAndPassesRequest(t *testing.T) {

@@ -15,6 +15,7 @@ from .extraction import ExtractionError, ExtractionPipeline, ExtractionResult
 from .indexing import IndexPageInput, IndexingPipeline, IndexingResult
 from .logging import configure_logging
 from .qdrant import QdrantService
+from .search import SearchPipeline, SearchSectionsResult
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,14 @@ class AnalyzeCompanyNameJobRequest(BaseModel):
     new_company_name: str | None = None
 
 
+class SearchSectionsJobRequest(BaseModel):
+    job_id: str
+    request_id: str | None = None
+    query_text: str
+    document_ids: list[str] | None = None
+    limit: int = 10
+
+
 @lru_cache
 def get_extraction_pipeline() -> ExtractionPipeline:
     return ExtractionPipeline()
@@ -114,6 +123,13 @@ def get_analysis_pipeline(
     qdrant: Annotated[QdrantService, Depends(get_qdrant_service)],
 ) -> AnalysisPipeline:
     return AnalysisPipeline(qdrant=qdrant)
+
+
+def get_search_pipeline(
+    settings: Annotated[Settings, Depends(get_settings)],
+    qdrant: Annotated[QdrantService, Depends(get_qdrant_service)],
+) -> SearchPipeline:
+    return SearchPipeline(qdrant=qdrant, vector_size=settings.qdrant_vector_size)
 
 
 @app.get("/internal/v1/health")
@@ -245,5 +261,28 @@ def start_company_name_analysis_job(
         job_id=payload.job_id,
         status="completed",
         job_type="analyze_company_name",
+        result=result.model_dump(),
+    )
+
+
+@app.post(
+    "/internal/v1/search/sections",
+    status_code=202,
+    response_model=AcceptedJobResponse,
+    dependencies=[Depends(require_internal_service_auth)],
+)
+def start_search_sections_job(
+    payload: SearchSectionsJobRequest,
+    pipeline: Annotated[SearchPipeline, Depends(get_search_pipeline)],
+) -> AcceptedJobResponse:
+    result: SearchSectionsResult = pipeline.search_sections(
+        query_text=payload.query_text,
+        document_ids=payload.document_ids,
+        limit=max(1, min(payload.limit, 50)),
+    )
+    return AcceptedJobResponse(
+        job_id=payload.job_id,
+        status="completed",
+        job_type="search_sections",
         result=result.model_dump(),
     )

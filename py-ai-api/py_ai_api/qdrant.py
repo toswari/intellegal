@@ -155,3 +155,51 @@ class QdrantService:
                 }
             )
         return chunks
+
+    def search_chunks(
+        self,
+        *,
+        query_vector: list[float],
+        document_ids: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        if not query_vector:
+            return []
+
+        target_documents = {doc_id for doc_id in (document_ids or []) if doc_id}
+        raw_results = self._client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=max(1, limit * 4),
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        matches: list[dict[str, Any]] = []
+        for result in raw_results:
+            payload = result.payload or {}
+            document_id = str(payload.get("document_id") or "").strip()
+            if not document_id:
+                continue
+            if target_documents and document_id not in target_documents:
+                continue
+
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                continue
+
+            chunk_id = payload.get("chunk_id")
+            page_number = int(payload.get("page_number") or 0)
+            matches.append(
+                {
+                    "document_id": document_id,
+                    "chunk_id": str(chunk_id) if chunk_id is not None else None,
+                    "page_number": page_number if page_number > 0 else 1,
+                    "text": text,
+                    "score": float(getattr(result, "score", 0.0) or 0.0),
+                }
+            )
+            if len(matches) >= limit:
+                break
+
+        return matches

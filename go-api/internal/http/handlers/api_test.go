@@ -77,6 +77,15 @@ func (f *fakeAIClient) Index(_ context.Context, req ai.IndexRequest) (ai.IndexRe
 	}, nil
 }
 
+func (f *fakeAIClient) SearchSections(_ context.Context, _ ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	if f.fail {
+		return ai.SearchSectionsResult{}, context.DeadlineExceeded
+	}
+	return ai.SearchSectionsResult{
+		Items: []ai.SearchSectionsResultItem{},
+	}, nil
+}
+
 func TestDocumentAndCheckFlow(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	api := handlers.NewAPI(logger, &fakeAIClient{}, nil, nil)
@@ -87,6 +96,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 		"filename":       "contract.pdf",
 		"mime_type":      "application/pdf",
 		"content_base64": "cGRm",
+		"tags":           []string{"MSA", "finance"},
 	})
 	if docResp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", docResp.StatusCode)
@@ -97,6 +107,10 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 	docID := createdDoc["id"].(string)
 	if docID == "" {
 		t.Fatal("expected document id")
+	}
+	tags, ok := createdDoc["tags"].([]any)
+	if !ok || len(tags) != 2 {
+		t.Fatalf("expected 2 tags on created document, got %#v", createdDoc["tags"])
 	}
 
 	listResp := get(t, ts.URL+"/api/v1/documents")
