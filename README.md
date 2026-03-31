@@ -92,7 +92,7 @@ This process is currently semi-manual, slow, and hard to scale.
 - Contract detail drawer
 
 3. Checks
-- New Check Wizard
+- New Guideline Run
   - Step 1: Select scope (all contracts / filtered set)
   - Step 2: Choose check type (missing clause / company name)
   - Step 3: Input parameters
@@ -291,10 +291,10 @@ Endpoints:
 - 🔵 `POST /api/v1/documents` - Create document ingest job.
 - 🟢 `GET /api/v1/documents` - List documents (supports filters/pagination).
 - 🟢 `GET /api/v1/documents/{document_id}` - Get one document.
-- 🔵 `POST /api/v1/checks/clause-presence` - Start missing-clause check.
-- 🔵 `POST /api/v1/checks/company-name` - Start company-name check.
-- 🟢 `GET /api/v1/checks/{check_id}` - Get check run status.
-- 🟢 `GET /api/v1/checks/{check_id}/results` - Get check results with evidence.
+- 🔵 `POST /api/v1/guidelines/clause-presence` - Start missing-clause guideline.
+- 🔵 `POST /api/v1/guidelines/company-name` - Start company-name guideline.
+- 🟢 `GET /api/v1/guidelines/{check_id}` - Get guideline run status.
+- 🟢 `GET /api/v1/guidelines/{check_id}/results` - Get guideline results with evidence.
 
 </details>
 

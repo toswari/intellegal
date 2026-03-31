@@ -33,6 +33,10 @@ func New(
 	mux.HandleFunc("POST /api/v1/contracts/{contract_id}/files", api.AddContractFile)
 	mux.HandleFunc("PATCH /api/v1/contracts/{contract_id}/files/order", api.ReorderContractFiles)
 
+	mux.HandleFunc("POST /api/v1/guidelines/clause-presence", api.CreateClauseCheck)
+	mux.HandleFunc("POST /api/v1/guidelines/company-name", api.CreateCompanyNameCheck)
+	mux.HandleFunc("GET /api/v1/guidelines/{check_id}", api.GetCheck)
+	mux.HandleFunc("GET /api/v1/guidelines/{check_id}/results", api.GetCheckResults)
 	mux.HandleFunc("POST /api/v1/checks/clause-presence", api.CreateClauseCheck)
 	mux.HandleFunc("POST /api/v1/checks/company-name", api.CreateCompanyNameCheck)
 	mux.HandleFunc("GET /api/v1/checks/{check_id}", api.GetCheck)

@@ -31,7 +31,11 @@ export type AuditEvent = {
 };
 
 function readJson<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.localStorage === "undefined" ||
+    typeof window.localStorage.getItem !== "function"
+  ) {
     return fallback;
   }
 
@@ -48,7 +52,11 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson<T>(key: string, value: T) {
-  if (typeof window === "undefined") {
+  if (
+    typeof window === "undefined" ||
+    typeof window.localStorage === "undefined" ||
+    typeof window.localStorage.setItem !== "function"
+  ) {
     return;
   }
 

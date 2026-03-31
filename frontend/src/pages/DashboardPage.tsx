@@ -151,7 +151,7 @@ export function DashboardPage() {
           <strong>{state.documents.length}</strong>
         </article>
         <article className="kpi-card">
-          <h3>Checks Run</h3>
+          <h3>Guideline Runs</h3>
           <strong>{state.runs.length}</strong>
         </article>
         <article className="kpi-card">

@@ -123,7 +123,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 		"required_clause_text": "must include payment terms",
 	}
 
-	checkResp1 := postJSONWithHeaders(t, ts.URL+"/api/v1/checks/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
+	checkResp1 := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
 	if checkResp1.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", checkResp1.StatusCode)
 	}
@@ -132,7 +132,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 	decodeResponse(t, checkResp1, &accepted1)
 	checkID := accepted1["check_id"].(string)
 
-	checkResp2 := postJSONWithHeaders(t, ts.URL+"/api/v1/checks/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
+	checkResp2 := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
 	if checkResp2.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202 for idempotent replay, got %d", checkResp2.StatusCode)
 	}
@@ -142,7 +142,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 		t.Fatalf("expected same check id, got %q vs %q", accepted2["check_id"], checkID)
 	}
 
-	conflictResp := postJSONWithHeaders(t, ts.URL+"/api/v1/checks/clause-presence", map[string]any{
+	conflictResp := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", map[string]any{
 		"document_ids":         []string{docID},
 		"required_clause_text": "different payload",
 	}, map[string]string{"Idempotency-Key": "idem-key-12345"})
@@ -152,7 +152,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 
 	waitForCheckStatus(t, ts.URL, checkID, "completed")
 
-	resultsResp := get(t, ts.URL+"/api/v1/checks/"+checkID+"/results")
+	resultsResp := get(t, ts.URL+"/api/v1/guidelines/"+checkID+"/results")
 	if resultsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 results, got %d", resultsResp.StatusCode)
 	}
@@ -170,7 +170,7 @@ func waitForCheckStatus(t *testing.T, baseURL, checkID, want string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		resp := get(t, baseURL+"/api/v1/checks/"+checkID)
+		resp := get(t, baseURL+"/api/v1/guidelines/"+checkID)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("unexpected status for check: %d", resp.StatusCode)
 		}

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .db import ChunkSearchStore
 from .extraction import ExtractionError, _clamp_confidence
 from .qdrant import QdrantService
 
@@ -65,6 +66,7 @@ class IndexingPipeline:
         chunk_size: int = 800,
         chunk_overlap: int = 120,
         embedding_generator: HashEmbeddingGenerator | None = None,
+        chunk_store: ChunkSearchStore | None = None,
     ) -> None:
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
@@ -74,6 +76,7 @@ class IndexingPipeline:
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
         self._embeddings = embedding_generator or HashEmbeddingGenerator(vector_size)
+        self._chunk_store = chunk_store
 
     def index_document(
         self,
@@ -138,6 +141,19 @@ class IndexingPipeline:
         if reindex:
             self._qdrant.delete_document_chunks(document_id=document_id)
         self._qdrant.upsert_chunks(points)
+        if self._chunk_store is not None:
+            self._chunk_store.upsert_document_chunks(
+                document_id=document_id,
+                checksum=checksum,
+                chunks=[
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "page_number": chunk.page_number,
+                        "snippet_text": chunk.text,
+                    }
+                    for chunk in chunks
+                ],
+            )
         return IndexingResult(
             document_id=document_id,
             checksum=checksum,

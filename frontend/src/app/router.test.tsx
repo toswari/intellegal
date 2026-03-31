@@ -1,6 +1,10 @@
-import { render, screen } from "@testing-library/react";
-import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { Navigate, RouterProvider, createMemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -65,7 +69,8 @@ function renderAt(path: string) {
           { path: "contracts", element: <ContractsPage /> },
           { path: "contracts/new", element: <NewContractPage /> },
           { path: "contracts/compare", element: <CompareContractsPage /> },
-          { path: "checks", element: <ChecksPage /> },
+          { path: "guidelines", element: <ChecksPage /> },
+          { path: "checks", element: <Navigate to="/guidelines" replace /> },
           { path: "results", element: <ResultsPage /> },
           { path: "audit", element: <AuditPage /> }
         ]
@@ -87,16 +92,30 @@ describe("router", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Legal Document Intelligence" })).toBeVisible();
     expect(screen.getByRole("heading", { level: 2, name: "Dashboard" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
     expect(screen.getByRole("link", { name: "Contracts" })).toHaveAttribute("href", "/contracts");
-    expect(screen.getByRole("link", { name: "Checks" })).toHaveAttribute("href", "/checks");
+    expect(screen.getByRole("link", { name: "Guidelines" })).toHaveAttribute("href", "/guidelines");
+    expect(screen.queryByRole("link", { name: "Results" })).not.toBeInTheDocument();
   });
 
-  it("renders checks route from memory router navigation", () => {
+  it("renders guidelines route from memory router navigation", () => {
+    renderAt("/guidelines");
+
+    expect(screen.getByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
+    expect(screen.getByText("New Guideline Run")).toBeVisible();
+    expect(screen.getByText("Past Guideline Runs")).toBeVisible();
+  });
+
+  it("redirects legacy checks route to guidelines", async () => {
     renderAt("/checks");
 
-    expect(screen.getByRole("heading", { level: 2, name: "Checks" })).toBeVisible();
-    expect(screen.getByText("New Check Wizard")).toBeVisible();
+    expect(await screen.findByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
+  });
+
+  it("redirects legacy results route to guidelines", async () => {
+    renderAt("/results?checkId=00000000-0000-4000-8000-000000000000");
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
+    expect(screen.getByText("Past Guideline Runs")).toBeVisible();
   });
 
   it("renders not found route for unknown paths", () => {

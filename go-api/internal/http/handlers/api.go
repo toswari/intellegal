@@ -308,6 +308,7 @@ type contractSearchRequest struct {
 	QueryText   string   `json:"query_text"`
 	DocumentIDs []string `json:"document_ids,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
+	Strategy    string   `json:"strategy,omitempty"`
 }
 
 type contractSearchResultItem struct {
@@ -1023,6 +1024,14 @@ func (a *API) SearchContracts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "query_text must be at least 2 characters", false, nil)
 		return
 	}
+	strategy := strings.TrimSpace(strings.ToLower(req.Strategy))
+	if strategy == "" {
+		strategy = "semantic"
+	}
+	if strategy != "semantic" && strategy != "strict" {
+		writeError(w, http.StatusBadRequest, "invalid_argument", "strategy must be one of: semantic, strict", false, nil)
+		return
+	}
 
 	limit := req.Limit
 	if limit == 0 {
@@ -1062,10 +1071,11 @@ func (a *API) SearchContracts(w http.ResponseWriter, r *http.Request) {
 		QueryText:   queryText,
 		DocumentIDs: resolvedDocIDs,
 		Limit:       limit,
+		Strategy:    strategy,
 	})
 	if err != nil {
 		a.logger.Error("contract search failed", "error", err)
-		writeError(w, http.StatusBadGateway, "search_unavailable", "semantic search is temporarily unavailable", true, nil)
+		writeError(w, http.StatusBadGateway, "search_unavailable", "search is temporarily unavailable", true, nil)
 		return
 	}
 

@@ -132,6 +132,7 @@ export type CheckResultsResponse = {
 
 export type ContractSearchRequest = {
   query_text: string;
+  strategy?: "semantic" | "strict";
   document_ids?: string[];
   limit?: number;
 };
@@ -281,7 +282,7 @@ export class ApiClient {
   startClausePresenceCheck(body: ClauseCheckRequest, options?: RequestOptions) {
     return this.request<CheckAcceptedResponse>(
       "POST",
-      "/api/v1/checks/clause-presence",
+      "/api/v1/guidelines/clause-presence",
       body,
       options
     );
@@ -290,20 +291,20 @@ export class ApiClient {
   startCompanyNameCheck(body: CompanyNameCheckRequest, options?: RequestOptions) {
     return this.request<CheckAcceptedResponse>(
       "POST",
-      "/api/v1/checks/company-name",
+      "/api/v1/guidelines/company-name",
       body,
       options
     );
   }
 
   getCheckRun(checkId: string) {
-    return this.request<CheckRunResponse>("GET", `/api/v1/checks/${encodeURIComponent(checkId)}`);
+    return this.request<CheckRunResponse>("GET", `/api/v1/guidelines/${encodeURIComponent(checkId)}`);
   }
 
   getCheckResults(checkId: string) {
     return this.request<CheckResultsResponse>(
       "GET",
-      `/api/v1/checks/${encodeURIComponent(checkId)}/results`
+      `/api/v1/guidelines/${encodeURIComponent(checkId)}/results`
     );
   }
 

@@ -65,22 +65,22 @@ describe("check run flow integration", () => {
 
     expect(fetchFn).toHaveBeenNthCalledWith(
       1,
-      "http://localhost:8080/api/v1/checks/clause-presence",
+      "http://localhost:8080/api/v1/guidelines/clause-presence",
       expect.objectContaining({ method: "POST" })
     );
     expect(fetchFn).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:8080/api/v1/checks/check-123",
+      "http://localhost:8080/api/v1/guidelines/check-123",
       expect.objectContaining({ method: "GET" })
     );
     expect(fetchFn).toHaveBeenNthCalledWith(
       3,
-      "http://localhost:8080/api/v1/checks/check-123",
+      "http://localhost:8080/api/v1/guidelines/check-123",
       expect.objectContaining({ method: "GET" })
     );
     expect(fetchFn).toHaveBeenNthCalledWith(
       4,
-      "http://localhost:8080/api/v1/checks/check-123/results",
+      "http://localhost:8080/api/v1/guidelines/check-123/results",
       expect.objectContaining({ method: "GET" })
     );
   });

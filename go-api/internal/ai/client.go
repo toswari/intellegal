@@ -104,6 +104,7 @@ type SearchSectionsRequest struct {
 	QueryText   string   `json:"query_text"`
 	DocumentIDs []string `json:"document_ids,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
+	Strategy    string   `json:"strategy,omitempty"`
 }
 
 type SearchSectionsResultItem struct {

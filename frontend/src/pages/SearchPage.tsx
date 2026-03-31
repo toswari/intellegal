@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiClient, type ContractSearchResultItem } from "../api/client";
 
+type SearchStrategy = "semantic" | "strict";
+
 function inferSectionHint(snippet: string): string | null {
   const normalized = snippet.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -34,10 +36,14 @@ function buildResultLink(item: ContractSearchResultItem): string {
 
 export function SearchPage() {
   const [searchParams] = useSearchParams();
-  const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<ContractSearchResultItem[]>([]);
+  const [activeStrategy, setActiveStrategy] = useState<SearchStrategy>("semantic");
+  const [semanticSearching, setSemanticSearching] = useState(false);
+  const [strictSearching, setStrictSearching] = useState(false);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
+  const [strictError, setStrictError] = useState<string | null>(null);
+  const [semanticResults, setSemanticResults] = useState<ContractSearchResultItem[]>([]);
+  const [strictResults, setStrictResults] = useState<ContractSearchResultItem[]>([]);
 
   const query = searchParams.get("q")?.trim() ?? "";
 
@@ -45,43 +51,75 @@ export function SearchPage() {
     const run = async () => {
       if (query.length < 2) {
         setSearched(false);
-        setError(null);
-        setResults([]);
+        setSemanticError(null);
+        setStrictError(null);
+        setSemanticResults([]);
+        setStrictResults([]);
+        setSemanticSearching(false);
+        setStrictSearching(false);
         return;
       }
 
-      setSearching(true);
       setSearched(true);
-      setError(null);
+      if (activeStrategy === "semantic") {
+        setSemanticSearching(true);
+        setSemanticError(null);
+        try {
+          const response = await apiClient.searchContractSections({
+            query_text: query,
+            strategy: "semantic",
+            limit: 30
+          });
+          setSemanticResults(response.items);
+        } catch (err) {
+          setSemanticResults([]);
+          const message = err instanceof Error ? err.message : "Semantic search failed.";
+          setSemanticError(message);
+        } finally {
+          setSemanticSearching(false);
+        }
+        return;
+      }
+
+      setStrictSearching(true);
+      setStrictError(null);
       try {
         const response = await apiClient.searchContractSections({
           query_text: query,
+          strategy: "strict",
           limit: 30
         });
-        setResults(response.items);
+        setStrictResults(response.items);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Semantic search failed.";
-        setError(message);
+        setStrictResults([]);
+        const message = err instanceof Error ? err.message : "Strict search failed.";
+        setStrictError(message);
       } finally {
-        setSearching(false);
+        setStrictSearching(false);
       }
     };
 
     void run();
-  }, [query]);
+  }, [activeStrategy, query]);
+
+  const selectedResults = activeStrategy === "semantic" ? semanticResults : strictResults;
+  const selectedError = activeStrategy === "semantic" ? semanticError : strictError;
+  const selectedSearching = activeStrategy === "semantic" ? semanticSearching : strictSearching;
 
   const resultCountLabel = useMemo(() => {
     if (!searched || query.length < 2) {
       return "Enter at least 2 characters to search contract sections.";
     }
-    if (searching) {
-      return "Searching contract sections...";
+    if (selectedSearching) {
+      return activeStrategy === "semantic"
+        ? "Searching semantic matches..."
+        : "Searching strict text matches...";
     }
-    if (error) {
+    if (selectedError) {
       return "";
     }
-    return `${results.length} section matches`;
-  }, [error, query, results.length, searched, searching]);
+    return `${selectedResults.length} section matches`;
+  }, [activeStrategy, query, searched, selectedError, selectedResults.length, selectedSearching]);
 
   return (
     <section className="page">
@@ -89,16 +127,36 @@ export function SearchPage() {
         <h2>Search</h2>
       </header>
 
-      <section className="panel search-view-panel">
+      <section className="search-view-panel">
         <p className="muted">
           Query: <strong>{query || "-"}</strong>
         </p>
+        <div className="compare-tabs search-mode-tabs" role="tablist" aria-label="Search modes">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeStrategy === "semantic"}
+            className={activeStrategy === "semantic" ? "secondary" : undefined}
+            onClick={() => setActiveStrategy("semantic")}
+          >
+            Similarity
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeStrategy === "strict"}
+            className={activeStrategy === "strict" ? "secondary" : undefined}
+            onClick={() => setActiveStrategy("strict")}
+          >
+            Strict
+          </button>
+        </div>
         {resultCountLabel ? <p className="muted">{resultCountLabel}</p> : null}
-        {error ? <p className="error-text">{error}</p> : null}
+        {selectedError ? <p className="error-text">{selectedError}</p> : null}
 
-        {results.length > 0 ? (
+        {selectedResults.length > 0 ? (
           <div className="search-results-grid">
-            {results.map((item, index) => {
+            {selectedResults.map((item, index) => {
               const sectionHint = inferSectionHint(item.snippet_text);
               return (
                 <article key={`${item.document_id}-${item.chunk_id ?? index}`} className="search-result-card">

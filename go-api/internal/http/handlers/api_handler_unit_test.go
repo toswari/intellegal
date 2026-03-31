@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"legal-doc-intel/go-api/internal/ai"
 )
 
 type noopLogger struct{}
@@ -22,6 +24,41 @@ type stubDocumentStore struct {
 	deleteErr    error
 	deletedKeys  []string
 	deletedCalls int
+}
+
+type searchCapturingAIClient struct {
+	req ai.SearchSectionsRequest
+}
+
+func (s *searchCapturingAIClient) AnalyzeClause(context.Context, ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
+	return ai.AnalysisResult{}, nil
+}
+
+func (s *searchCapturingAIClient) AnalyzeCompanyName(context.Context, ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error) {
+	return ai.AnalysisResult{}, nil
+}
+
+func (s *searchCapturingAIClient) Extract(context.Context, ai.ExtractRequest) (ai.ExtractResult, error) {
+	return ai.ExtractResult{}, nil
+}
+
+func (s *searchCapturingAIClient) Index(context.Context, ai.IndexRequest) (ai.IndexResult, error) {
+	return ai.IndexResult{}, nil
+}
+
+func (s *searchCapturingAIClient) SearchSections(_ context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	s.req = req
+	return ai.SearchSectionsResult{
+		Items: []ai.SearchSectionsResultItem{
+			{
+				DocumentID:  req.DocumentIDs[0],
+				PageNumber:  2,
+				ChunkID:     "3",
+				Score:       0.91,
+				SnippetText: "payment terms apply",
+			},
+		},
+	}, nil
 }
 
 func (s *stubDocumentStore) Put(_ context.Context, key string, _ io.Reader) (string, error) {
@@ -509,6 +546,47 @@ func TestGetDocumentTextReturnsExtractedText(t *testing.T) {
 	}
 	if body.Text == "" {
 		t.Fatal("expected non-empty extracted text")
+	}
+}
+
+func TestSearchContractsRejectsInvalidStrategy(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
+		"query_text": "payment terms",
+		"strategy":   "hybrid",
+	}, api.SearchContracts)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+	body := decodeJSONBody(t, resp)
+	if body.Error.Code != "invalid_argument" {
+		t.Fatalf("expected invalid_argument, got %q", body.Error.Code)
+	}
+}
+
+func TestSearchContractsPassesStrategyToAI(t *testing.T) {
+	aiClient := &searchCapturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	documentID := "00000000-0000-4000-8000-000000000071"
+	api.documents[documentID] = document{
+		ID:        documentID,
+		Filename:  "contract.pdf",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
+		"query_text": "payment terms",
+		"strategy":   "strict",
+	}, api.SearchContracts)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	if aiClient.req.Strategy != "strict" {
+		t.Fatalf("expected strict strategy, got %q", aiClient.req.Strategy)
+	}
+	if len(aiClient.req.DocumentIDs) != 1 || aiClient.req.DocumentIDs[0] != documentID {
+		t.Fatalf("unexpected document ids: %#v", aiClient.req.DocumentIDs)
 	}
 }
 

@@ -108,7 +108,7 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /api/v1/checks/clause-presence:
+  /api/v1/guidelines/clause-presence:
     post:
       summary: Start missing-clause check
       operationId: startClausePresenceCheck
@@ -136,7 +136,7 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /api/v1/checks/company-name:
+  /api/v1/guidelines/company-name:
     post:
       summary: Start company-name check
       operationId: startCompanyNameCheck
@@ -164,7 +164,7 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /api/v1/checks/{check_id}:
+  /api/v1/guidelines/{check_id}:
     get:
       summary: Get check run status
       operationId: getCheckRun
@@ -187,7 +187,7 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /api/v1/checks/{check_id}/results:
+  /api/v1/guidelines/{check_id}/results:
     get:
       summary: Get check run results
       operationId: getCheckResults

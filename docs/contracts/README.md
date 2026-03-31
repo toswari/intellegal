@@ -19,7 +19,7 @@ This folder defines API contracts for Step 1:
 ## Retry and Idempotency Semantics
 
 ### Public API (client -> Go API)
-- `POST /api/v1/documents` and `POST /api/v1/checks/*` support `Idempotency-Key`.
+- `POST /api/v1/documents` and `POST /api/v1/guidelines/*` support `Idempotency-Key`.
 - If the same `Idempotency-Key` and same payload are replayed, API returns the original response.
 - Retry guidance:
   - Retry on `429`, `502`, `503`, `504` with exponential backoff + jitter.

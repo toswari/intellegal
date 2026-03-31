@@ -1,6 +1,6 @@
-import { type FormEvent, useState } from "react";
+import { type DragEvent, type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { apiClient } from "../api/client";
+import { ApiError, apiClient } from "../api/client";
 import { addAuditEvent } from "../app/localState";
 
 async function toBase64(file: File): Promise<string> {
@@ -17,13 +17,58 @@ async function toBase64(file: File): Promise<string> {
 
 export function NewContractPage() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [contractName, setContractName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [sourceRef, setSourceRef] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
   const [tagsInput, setTagsInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const sourceType = "upload" as const;
+
+  const appendFiles = (incomingFiles: File[]) => {
+    if (incomingFiles.length === 0) return;
+
+    setFiles((prev) => {
+      const next = [...prev];
+      const existing = new Set(prev.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+
+      for (const file of incomingFiles) {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (!existing.has(key)) {
+          existing.add(key);
+          next.push(file);
+        }
+      }
+
+      return next;
+    });
+    setUploadError(null);
+  };
+
+  const removeFile = (fileToRemove: File) => {
+    setFiles((prev) =>
+      prev.filter(
+        (file) =>
+          !(
+            file.name === fileToRemove.name &&
+            file.size === fileToRemove.size &&
+            file.lastModified === fileToRemove.lastModified
+          )
+      )
+    );
+  };
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const onDropzoneKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openFilePicker();
+    }
+  };
 
   const uploadDocument = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,6 +91,8 @@ export function NewContractPage() {
     setUploading(true);
     setUploadError(null);
 
+    let createdContractId: string | null = null;
+
     try {
       const tags = Array.from(
         new Set(
@@ -59,26 +106,38 @@ export function NewContractPage() {
         {
           name: contractName.trim(),
           source_type: sourceType,
-          source_ref: sourceRef.trim() || undefined,
           tags: tags.length > 0 ? tags : undefined
         },
         { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `contract-${Date.now()}` }
       );
+      createdContractId = contract.id;
+      let processingFailureCount = 0;
 
       for (const file of files) {
         const contentBase64 = await toBase64(file);
-        await apiClient.addContractFile(
-          contract.id,
-          {
-            filename: file.name,
-            mime_type: file.type as "application/pdf" | "image/jpeg" | "image/png",
-            source_type: sourceType,
-            source_ref: sourceRef.trim() || undefined,
-            tags: tags.length > 0 ? tags : undefined,
-            content_base64: contentBase64
-          },
-          { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}-${file.name}` }
-        );
+        try {
+          await apiClient.addContractFile(
+            contract.id,
+            {
+              filename: file.name,
+              mime_type: file.type as "application/pdf" | "image/jpeg" | "image/png",
+              source_type: sourceType,
+              tags: tags.length > 0 ? tags : undefined,
+              content_base64: contentBase64
+            },
+            { idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}-${file.name}` }
+          );
+        } catch (err) {
+          if (
+            err instanceof ApiError &&
+            err.code === "upstream_unavailable" &&
+            (err.message === "failed to extract document text" || err.message === "failed to index document text")
+          ) {
+            processingFailureCount += 1;
+            continue;
+          }
+          throw err;
+        }
       }
 
       addAuditEvent({
@@ -87,8 +146,21 @@ export function NewContractPage() {
         metadata: { contract_id: contract.id, file_count: String(files.length) }
       });
 
-      navigate(`/contracts/${encodeURIComponent(contract.id)}/edit`);
+      const notice =
+        processingFailureCount > 0
+          ? `Contract created. ${processingFailureCount} file(s) uploaded with text-processing issues; track status here.`
+          : "Contract created. Indexing status will update here.";
+      navigate(`/contracts/${encodeURIComponent(contract.id)}/edit?notice=${encodeURIComponent(notice)}`);
     } catch (err) {
+      if (createdContractId) {
+        const message = err instanceof Error ? err.message : "File upload failed after contract creation.";
+        navigate(
+          `/contracts/${encodeURIComponent(createdContractId)}/edit?notice=${encodeURIComponent(
+            `Contract was created, but some file steps failed: ${message}`
+          )}`
+        );
+        return;
+      }
       const message = err instanceof Error ? err.message : "Upload failed.";
       setUploadError(message);
     } finally {
@@ -117,20 +189,72 @@ export function NewContractPage() {
               required
             />
           </label>
-          <label>
-            Files
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              multiple
-              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-              required
-            />
-          </label>
-          <label>
-            Source Ref
-            <input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} placeholder="Optional" />
-          </label>
+          <div className="upload-field">
+            <span className="upload-field-label">Files</span>
+            <div
+              className={`file-upload-dropzone contract-upload-dropzone${isDragOver ? " is-drag-over" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={openFilePicker}
+              onKeyDown={onDropzoneKeyDown}
+              onDragOver={(event: DragEvent<HTMLDivElement>) => {
+                event.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={(event: DragEvent<HTMLDivElement>) => {
+                event.preventDefault();
+                setIsDragOver(false);
+                appendFiles(Array.from(event.dataTransfer.files ?? []));
+              }}
+            >
+              <input
+                ref={fileInputRef}
+                className="file-upload-input-hidden"
+                type="file"
+                accept="application/pdf,image/jpeg,image/png"
+                multiple
+                onChange={(event) => {
+                  appendFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <p className="upload-dropzone-title">Drop files here or click to browse</p>
+              <p className="muted">Supports multiple PDF, JPEG, and PNG files.</p>
+              <button type="button" className="secondary upload-dropzone-action">
+                Choose Files
+              </button>
+            </div>
+            {files.length > 0 ? (
+              <div className="selected-upload-list" aria-live="polite">
+                {files.map((file) => (
+                  <div
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="selected-upload-item"
+                  >
+                    <div>
+                      <span className="selected-upload-name">{file.name}</span>
+                      <span className="selected-upload-meta">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeFile(file);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No files selected yet.</p>
+            )}
+          </div>
           <label>
             Tags
             <input
@@ -140,9 +264,7 @@ export function NewContractPage() {
             />
           </label>
         </div>
-        {files.length > 0 ? (
-          <p className="muted">Upload order: {files.map((file) => file.name).join(" -> ")}</p>
-        ) : null}
+        {files.length > 0 ? <p className="muted">Upload order: {files.map((file) => file.name).join(" -> ")}</p> : null}
         {uploadError ? <p className="error-text">{uploadError}</p> : null}
         <div className="form-actions-end">
           <button type="submit" disabled={uploading}>

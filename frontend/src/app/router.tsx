@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { AuditPage } from "../pages/AuditPage";
 import { ChecksPage } from "../pages/ChecksPage";
@@ -24,7 +24,8 @@ export const router = createBrowserRouter([
       { path: "contracts/files/:documentId", element: <ContractViewPage /> },
       { path: "contracts/:contractId/edit", element: <ContractEditPage /> },
       { path: "contracts/compare", element: <CompareContractsPage /> },
-      { path: "checks", element: <ChecksPage /> },
+      { path: "guidelines", element: <ChecksPage /> },
+      { path: "checks", element: <Navigate to="/guidelines" replace /> },
       { path: "results", element: <ResultsPage /> },
       { path: "audit", element: <AuditPage /> }
     ]

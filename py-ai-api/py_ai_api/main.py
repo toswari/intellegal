@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .auth import require_internal_service_auth
 from .analysis import AnalysisPipeline, AnalysisResult
 from .config import Settings, get_settings
-from .db import check_connection
+from .db import ChunkSearchStore, check_connection
 from .extraction import ExtractionError, ExtractionPipeline, ExtractionResult
 from .indexing import IndexPageInput, IndexingPipeline, IndexingResult
 from .logging import configure_logging
@@ -96,11 +96,16 @@ class SearchSectionsJobRequest(BaseModel):
     query_text: str
     document_ids: list[str] | None = None
     limit: int = 10
+    strategy: Literal["semantic", "strict"] = "semantic"
 
 
 @lru_cache
 def get_extraction_pipeline() -> ExtractionPipeline:
     return ExtractionPipeline()
+
+
+def get_chunk_search_store(settings: Annotated[Settings, Depends(get_settings)]) -> ChunkSearchStore:
+    return ChunkSearchStore(settings.database_url)
 
 
 def get_qdrant_service(settings: Annotated[Settings, Depends(get_settings)]) -> QdrantService:
@@ -110,12 +115,14 @@ def get_qdrant_service(settings: Annotated[Settings, Depends(get_settings)]) -> 
 def get_indexing_pipeline(
     settings: Annotated[Settings, Depends(get_settings)],
     qdrant: Annotated[QdrantService, Depends(get_qdrant_service)],
+    chunk_store: Annotated[ChunkSearchStore, Depends(get_chunk_search_store)],
 ) -> IndexingPipeline:
     return IndexingPipeline(
         qdrant=qdrant,
         vector_size=settings.qdrant_vector_size,
         chunk_size=settings.index_chunk_size,
         chunk_overlap=settings.index_chunk_overlap,
+        chunk_store=chunk_store,
     )
 
 
@@ -128,8 +135,9 @@ def get_analysis_pipeline(
 def get_search_pipeline(
     settings: Annotated[Settings, Depends(get_settings)],
     qdrant: Annotated[QdrantService, Depends(get_qdrant_service)],
+    chunk_store: Annotated[ChunkSearchStore, Depends(get_chunk_search_store)],
 ) -> SearchPipeline:
-    return SearchPipeline(qdrant=qdrant, vector_size=settings.qdrant_vector_size)
+    return SearchPipeline(qdrant=qdrant, vector_size=settings.qdrant_vector_size, chunk_store=chunk_store)
 
 
 @app.get("/internal/v1/health")
@@ -279,6 +287,7 @@ def start_search_sections_job(
         query_text=payload.query_text,
         document_ids=payload.document_ids,
         limit=max(1, min(payload.limit, 50)),
+        strategy=payload.strategy,
     )
     return AcceptedJobResponse(
         job_id=payload.job_id,

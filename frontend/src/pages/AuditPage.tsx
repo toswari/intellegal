@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatEuropeanDateTime } from "../app/datetime";
 import { listAuditEvents } from "../app/localState";
 
+const PAGE_SIZE = 100;
+
 export function AuditPage() {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const events = listAuditEvents();
 
   const filtered = useMemo(() => {
@@ -20,6 +23,21 @@ export function AuditPage() {
       );
     });
   }, [events, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pageItems = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   return (
     <section className="page">
@@ -41,22 +59,76 @@ export function AuditPage() {
       </section>
 
       <section className="panel">
-        <h3>Event Timeline</h3>
+        <h3>Event Log</h3>
         {filtered.length === 0 ? <p className="muted">No audit events found.</p> : null}
-        <ul className="timeline">
-          {filtered.map((event) => (
-            <li key={event.id}>
-              <div>
-                <strong>{event.type}</strong>
-                <p>{event.message}</p>
-                <small>{formatEuropeanDateTime(event.timestamp)}</small>
-              </div>
-              {event.metadata ? (
-                <pre>{JSON.stringify(event.metadata, null, 2)}</pre>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        {filtered.length > 0 ? (
+          <div className="audit-log-wrap">
+            <table className="audit-log-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Event Type</th>
+                  <th>Message</th>
+                  <th>Metadata</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((event) => {
+                  const metadataEntries = Object.entries(event.metadata ?? {});
+                  return (
+                    <tr key={event.id}>
+                      <td className="audit-log-time">
+                        <time dateTime={event.timestamp}>{formatEuropeanDateTime(event.timestamp)}</time>
+                      </td>
+                      <td>
+                        <code className="audit-event-type">{event.type}</code>
+                      </td>
+                      <td className="audit-log-message">{event.message}</td>
+                      <td className="audit-log-metadata">
+                        {metadataEntries.length > 0 ? (
+                          <details>
+                            <summary>{metadataEntries.length} field(s)</summary>
+                            <pre>{JSON.stringify(event.metadata, null, 2)}</pre>
+                          </details>
+                        ) : (
+                          <span className="muted">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {filtered.length > 0 ? (
+          <div className="audit-log-pagination">
+            <p className="muted">
+              Showing {pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="audit-log-pagination-controls">
+              <button
+                type="button"
+                className="secondary"
+                disabled={safePage <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                Previous
+              </button>
+              <span>
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </section>
   );

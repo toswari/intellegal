@@ -1,6 +1,12 @@
 import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { apiClient, type ContractResponse, type DocumentResponse, type DocumentTextResponse } from "../api/client";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  apiClient,
+  type ContractResponse,
+  type DocumentResponse,
+  type DocumentStatus,
+  type DocumentTextResponse
+} from "../api/client";
 import { formatEuropeanDateTime } from "../app/datetime";
 
 async function toBase64(file: File): Promise<string> {
@@ -15,6 +21,7 @@ async function toBase64(file: File): Promise<string> {
 
 export function ContractEditPage() {
   const { contractId } = useParams<{ contractId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [contract, setContract] = useState<ContractResponse | null>(null);
   const [files, setFiles] = useState<DocumentResponse[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -30,6 +37,7 @@ export function ContractEditPage() {
   const [textError, setTextError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const creationNotice = searchParams.get("notice")?.trim() ?? "";
 
   const appendFiles = (incomingFiles: File[]) => {
     if (incomingFiles.length === 0) return;
@@ -95,6 +103,30 @@ export function ContractEditPage() {
       cancelled = true;
     };
   }, [files]);
+
+  const statusSummary = useMemo(() => {
+    return files.reduce<Record<DocumentStatus, number>>(
+      (summary, file) => {
+        summary[file.status] += 1;
+        return summary;
+      },
+      { ingested: 0, processing: 0, indexed: 0, failed: 0 }
+    );
+  }, [files]);
+
+  useEffect(() => {
+    const shouldPoll = statusSummary.processing > 0 || statusSummary.ingested > 0;
+    if (!shouldPoll) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadContract();
+    }, 3000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [statusSummary.processing, statusSummary.ingested, contractId]);
 
   const onDragStart = (id: string) => {
     setDraggingId(id);
@@ -275,6 +307,17 @@ export function ContractEditPage() {
                   <span className="drag-handle">::</span>
                   <span className="order-index">{index + 1}.</span>
                   <span className="file-name">{file.filename}</span>
+                  <span
+                    className={`chip ${
+                      file.status === "indexed"
+                        ? "chip-success"
+                        : file.status === "failed"
+                          ? "chip-danger"
+                          : "chip-warning"
+                    }`}
+                  >
+                    {file.status}
+                  </span>
                   <span className="chip chip-neutral">{file.mime_type}</span>
                 </div>
               ))}
@@ -316,8 +359,28 @@ export function ContractEditPage() {
                 {savingOrder ? "Saving..." : "Save Order"}
               </button>
             </div>
+            <p className="muted">
+              Indexing summary: {statusSummary.indexed} indexed, {statusSummary.processing + statusSummary.ingested} in
+              progress, {statusSummary.failed} failed.
+            </p>
           </section>
 
+          {creationNotice ? (
+            <p className="muted">
+              {creationNotice}{" "}
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("notice");
+                  setSearchParams(next);
+                }}
+              >
+                Dismiss
+              </button>
+            </p>
+          ) : null}
           {message ? <p className="success-text">{message}</p> : null}
           {error ? <p className="error-text">{error}</p> : null}
         </div>

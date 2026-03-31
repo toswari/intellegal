@@ -238,6 +238,7 @@ def test_search_sections_returns_completed_job_with_result(monkeypatch) -> None:
             assert kwargs["query_text"] == "payment terms"
             assert kwargs["document_ids"] == ["doc-1"]
             assert kwargs["limit"] == 5
+            assert kwargs["strategy"] == "strict"
             return SearchSectionsResult(
                 items=[
                     SearchSectionsResultItem(
@@ -261,6 +262,7 @@ def test_search_sections_returns_completed_job_with_result(monkeypatch) -> None:
                 "query_text": "payment terms",
                 "document_ids": ["doc-1"],
                 "limit": 5,
+                "strategy": "strict",
             },
         )
     finally:
