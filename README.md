@@ -126,6 +126,7 @@ This process is currently semi-manual, slow, and hard to scale.
 
 ### 🔌 FE/BE Service Architecture
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryTextColor': '#1F2937', 'lineColor': '#5B6B7A', 'fontFamily': 'Inter, Segoe UI, sans-serif' }}}%%
 flowchart LR
     U["👤 Legal User"] --> FE["🖥️ frontend (React SPA via Nginx)<br/>ports: 80 (container), 3000 (host)"]
     FE --> GO["⚙️ go-api (Go net/http REST API)<br/>ports: 8080 (container/host)"]
@@ -148,12 +149,12 @@ flowchart LR
     GO --> COPY["📦 external contract-copy REST API<br/>external endpoint"]
     AUD --> RDB
 
-    classDef user fill:#0F2A43,stroke:#64B5F6,color:#E3F2FD,stroke-width:1px;
-    classDef frontend fill:#123524,stroke:#81C784,color:#E8F5E9,stroke-width:1px;
-    classDef api fill:#4A2C00,stroke:#FFB74D,color:#FFF3E0,stroke-width:1px;
-    classDef worker fill:#3B1A4A,stroke:#CE93D8,color:#F3E5F5,stroke-width:1px;
-    classDef data fill:#263238,stroke:#90A4AE,color:#ECEFF1,stroke-width:1px;
-    classDef external fill:#4E1C10,stroke:#FF8A65,color:#FBE9E7,stroke-width:1px;
+    classDef user fill:#E3F2FD,stroke:#64B5F6,color:#1F2937,stroke-width:1px;
+    classDef frontend fill:#E8F5E9,stroke:#81C784,color:#1F2937,stroke-width:1px;
+    classDef api fill:#FFF3E0,stroke:#FFB74D,color:#1F2937,stroke-width:1px;
+    classDef worker fill:#F3E5F5,stroke:#CE93D8,color:#1F2937,stroke-width:1px;
+    classDef data fill:#ECEFF1,stroke:#90A4AE,color:#1F2937,stroke-width:1px;
+    classDef external fill:#FBE9E7,stroke:#FF8A65,color:#1F2937,stroke-width:1px;
 
     class U user;
     class FE frontend;
@@ -165,17 +166,18 @@ flowchart LR
 
 ### 🔄 Runtime View (Request Flow)
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryTextColor': '#1F2937', 'actorTextColor': '#1F2937', 'actorBkg': '#E3F2FD', 'actorBorder': '#64B5F6', 'activationBorderColor': '#5B6B7A', 'activationBkgColor': '#F3F4F6', 'sequenceNumberColor': '#1F2937', 'signalColor': '#5B6B7A', 'signalTextColor': '#1F2937', 'labelBoxBkgColor': '#F8FAFC', 'labelBoxBorderColor': '#94A3B8', 'labelTextColor': '#1F2937', 'loopTextColor': '#1F2937', 'noteTextColor': '#1F2937', 'noteBkgColor': '#FFF7D6', 'noteBorderColor': '#F2C94C', 'fontFamily': 'Inter, Segoe UI, sans-serif' }}}%%
 sequenceDiagram
-    box rgb(21,41,32) "👥 Client Layer"
+    box rgb(232,245,233) "👥 Client Layer"
         actor User as "👤 Legal User"
         participant UI as "🖥️ frontend :3000"
     end
-    box rgb(56,38,17) "⚙️ Application Layer"
+    box rgb(255,243,224) "⚙️ Application Layer"
         participant API as "⚙️ go-api :8080"
         participant AI as "🤖 py-ai-api :8000"
         participant X as "🔎 extraction/index workers"
     end
-    box rgb(33,43,51) "🗄️ Data & External Layer"
+    box rgb(236,239,241) "🗄️ Data & External Layer"
         participant Q as "📚 qdrant :6333/:6334"
         participant DB as "🗄️ postgres :5432"
         participant C as "📦 external copy API"
