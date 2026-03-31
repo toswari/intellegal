@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  ApiError,
   apiClient,
   type ContractChatCitation,
   type ContractChatMessage,
@@ -37,6 +38,10 @@ import {
   formatGuidelineRunStatusEmoji,
   runGuidelineRule,
 } from "../app/guidelineRunFlow";
+
+function isMissingCheckError(err: unknown) {
+  return err instanceof ApiError && err.status === 404 && err.code === "not_found";
+}
 
 const CONTRACT_TEXT_SETTINGS_KEY = "ldi.contractTextSettings";
 const DEFAULT_TEXT_FONT_SIZE = 1.12;
@@ -660,6 +665,15 @@ export function ContractEditPage() {
           : `${runs.length} guideline checks removed.`,
       );
     } catch (err) {
+      if (isMissingCheckError(err)) {
+        removeGuidelineRunsFromStorage(ids);
+        setMessage(
+          runs.length === 1
+            ? "Guideline check removed."
+            : `${runs.length} guideline checks removed.`,
+        );
+        return;
+      }
       const fallback =
         remoteRuns.length > 0
           ? "Failed to delete guideline checks."

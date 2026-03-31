@@ -41,32 +41,6 @@ func (a *API) CreateClauseCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, checkAcceptedResponse{CheckID: checkID, Status: status, CheckType: checkTypeClause})
 }
 
-func (a *API) CreateCompanyNameCheck(w http.ResponseWriter, r *http.Request) {
-	var req companyNameCheckRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	if len(strings.TrimSpace(req.OldCompanyName)) < 2 {
-		writeError(w, http.StatusBadRequest, "invalid_argument", "old_company_name must be at least 2 characters", false, nil)
-		return
-	}
-
-	checkID, status, reused, err := a.createCheck(r, checkTypeCompany, req, req.DocumentIDs)
-	if err != nil {
-		handleCreateCheckError(w, err)
-		return
-	}
-	if reused {
-		a.logger.Info("idempotent check request reused", "check_id", checkID, "check_type", checkTypeCompany)
-		writeJSON(w, http.StatusAccepted, checkAcceptedResponse{CheckID: checkID, Status: status, CheckType: checkTypeCompany})
-		return
-	}
-
-	go a.runCompanyNameCheck(checkID, req, middleware.GetRequestID(r.Context()))
-	writeJSON(w, http.StatusAccepted, checkAcceptedResponse{CheckID: checkID, Status: status, CheckType: checkTypeCompany})
-}
-
 func (a *API) CreateLLMReviewCheck(w http.ResponseWriter, r *http.Request) {
 	var req llmReviewCheckRequest
 	if !decodeJSON(w, r, &req) {
@@ -537,32 +511,6 @@ func (a *API) runClauseCheck(checkID string, req clauseCheckRequest, requestID s
 	}
 
 	items := mapAnalysisItems(run.DocumentIDs, result.Items, "Clause analysis returned no items; manual review is required.")
-	a.markCheckCompleted(checkID, items)
-}
-
-func (a *API) runCompanyNameCheck(checkID string, req companyNameCheckRequest, requestID string) {
-	if !a.markCheckRunning(checkID) {
-		return
-	}
-
-	a.mu.RLock()
-	run := a.checks[checkID]
-	a.mu.RUnlock()
-
-	result, err := a.ai.AnalyzeCompanyName(context.Background(), ai.AnalyzeCompanyNameRequest{
-		JobID:          ids.NewUUID(),
-		RequestID:      requestID,
-		CheckID:        checkID,
-		DocumentIDs:    run.DocumentIDs,
-		OldCompanyName: req.OldCompanyName,
-		NewCompanyName: req.NewCompanyName,
-	})
-	if err != nil {
-		a.markCheckFailed(checkID, err)
-		return
-	}
-
-	items := mapAnalysisItems(run.DocumentIDs, result.Items, "Company-name analysis returned no items; manual review is required.")
 	a.markCheckCompleted(checkID, items)
 }
 

@@ -36,6 +36,8 @@ export function AppShell() {
   };
 
   const isContractDetailRoute = /^\/contracts\/[^/]+\/edit$/.test(location.pathname);
+  const isGuidelinesRoute = location.pathname.startsWith("/guidelines");
+  const isWideRoute = isContractDetailRoute || isGuidelinesRoute;
 
   return (
     <div className="app-shell">
@@ -82,7 +84,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className={`app-main${isContractDetailRoute ? " app-main-wide" : ""}`}>
+      <main className={`app-main${isWideRoute ? " app-main-wide" : ""}`}>
         <Outlet />
       </main>
     </div>

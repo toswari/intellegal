@@ -21,9 +21,6 @@ type mockAIClient struct{}
 func (mockAIClient) AnalyzeClause(_ context.Context, _ ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
 	return ai.AnalysisResult{}, nil
 }
-func (mockAIClient) AnalyzeCompanyName(_ context.Context, _ ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error) {
-	return ai.AnalysisResult{}, nil
-}
 func (mockAIClient) AnalyzeLLMReview(_ context.Context, _ ai.AnalyzeLLMReviewRequest) (ai.AnalysisResult, error) {
 	return ai.AnalysisResult{}, nil
 }

@@ -33,7 +33,7 @@ WHERE requested_at IS NULL;
 
 ALTER TABLE check_runs
     ADD CONSTRAINT check_runs_check_type_check
-    CHECK (check_type IN ('clause_presence', 'company_name', 'llm_review'));
+    CHECK (check_type IN ('clause_presence', 'llm_review'));
 
 CREATE TABLE IF NOT EXISTS check_run_documents (
     check_run_id UUID NOT NULL REFERENCES check_runs(id) ON DELETE CASCADE,

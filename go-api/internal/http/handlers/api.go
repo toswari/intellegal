@@ -30,7 +30,6 @@ const (
 	checkStatusCompleted     = "completed"
 	checkStatusFailed        = "failed"
 	checkTypeClause          = "clause_presence"
-	checkTypeCompany         = "company_name"
 	checkTypeLLMReview       = "llm_review"
 )
 
@@ -48,7 +47,6 @@ var (
 
 type aiClient interface {
 	AnalyzeClause(ctx context.Context, req ai.AnalyzeClauseRequest) (ai.AnalysisResult, error)
-	AnalyzeCompanyName(ctx context.Context, req ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error)
 	AnalyzeLLMReview(ctx context.Context, req ai.AnalyzeLLMReviewRequest) (ai.AnalysisResult, error)
 	ContractChat(ctx context.Context, req ai.ContractChatRequest) (ai.ContractChatResult, error)
 	Extract(ctx context.Context, req ai.ExtractRequest) (ai.ExtractResult, error)
@@ -84,10 +82,6 @@ type documentReader interface {
 type noopAIClient struct{}
 
 func (noopAIClient) AnalyzeClause(context.Context, ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
-	return ai.AnalysisResult{}, nil
-}
-
-func (noopAIClient) AnalyzeCompanyName(context.Context, ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error) {
 	return ai.AnalysisResult{}, nil
 }
 
@@ -312,12 +306,6 @@ type clauseCheckRequest struct {
 	DocumentIDs        []string `json:"document_ids,omitempty"`
 	RequiredClauseText string   `json:"required_clause_text"`
 	ContextHint        string   `json:"context_hint,omitempty"`
-}
-
-type companyNameCheckRequest struct {
-	DocumentIDs    []string `json:"document_ids,omitempty"`
-	OldCompanyName string   `json:"old_company_name"`
-	NewCompanyName string   `json:"new_company_name,omitempty"`
 }
 
 type llmReviewCheckRequest struct {

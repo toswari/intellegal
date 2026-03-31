@@ -136,34 +136,6 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /api/v1/guidelines/company-name:
-    post:
-      summary: Start company-name check
-      operationId: startCompanyNameCheck
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CompanyNameCheckRequest'
-      responses:
-        '202':
-          description: Check accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckAcceptedResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ErrorResponse'
-        '500':
-          $ref: '#/components/responses/ErrorResponse'
-
   /api/v1/guidelines/{check_id}:
     get:
       summary: Get check run status
@@ -272,7 +244,7 @@ components:
 
     CheckType:
       type: string
-      enum: [clause_presence, company_name]
+      enum: [clause_presence, llm_review]
 
     CreateDocumentRequest:
       type: object
@@ -356,21 +328,6 @@ components:
           type: string
           minLength: 5
         context_hint:
-          type: string
-
-    CompanyNameCheckRequest:
-      type: object
-      required: [old_company_name]
-      properties:
-        document_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        old_company_name:
-          type: string
-          minLength: 2
-        new_company_name:
           type: string
 
     CheckAcceptedResponse:

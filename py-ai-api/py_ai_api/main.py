@@ -82,15 +82,6 @@ class AnalyzeClauseJobRequest(BaseModel):
     context_hint: str | None = None
 
 
-class AnalyzeCompanyNameJobRequest(BaseModel):
-    job_id: str
-    request_id: str | None = None
-    check_id: str
-    document_ids: list[str] | None = None
-    old_company_name: str
-    new_company_name: str | None = None
-
-
 class AnalyzeLLMReviewDocument(BaseModel):
     document_id: str
     filename: str | None = None
@@ -291,29 +282,6 @@ def start_clause_analysis_job(
         job_id=payload.job_id,
         status="completed",
         job_type="analyze_clause",
-        result=result.model_dump(),
-    )
-
-
-@app.post(
-    "/internal/v1/analyze/company-name",
-    status_code=202,
-    response_model=AcceptedJobResponse,
-    dependencies=[Depends(require_internal_service_auth)],
-)
-def start_company_name_analysis_job(
-    payload: AnalyzeCompanyNameJobRequest,
-    pipeline: Annotated[AnalysisPipeline, Depends(get_analysis_pipeline)],
-) -> AcceptedJobResponse:
-    result: AnalysisResult = pipeline.analyze_company_name(
-        old_company_name=payload.old_company_name,
-        new_company_name=payload.new_company_name,
-        document_ids=payload.document_ids,
-    )
-    return AcceptedJobResponse(
-        job_id=payload.job_id,
-        status="completed",
-        job_type="analyze_company_name",
         result=result.model_dump(),
     )
 

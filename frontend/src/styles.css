@@ -678,6 +678,29 @@ th {
   margin: 0;
 }
 
+.guideline-type-explainer-rich {
+  gap: 0.8rem;
+}
+
+.guideline-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.guideline-type-grid > div {
+  padding: 0.8rem 0.85rem;
+  border: 1px solid #d9e5fb;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.guideline-type-grid .field-label {
+  margin: 0;
+}
+
 .guideline-field {
   display: grid;
   gap: 0.5rem;
@@ -765,6 +788,11 @@ th {
   background: linear-gradient(145deg, #f0fbff, #e3f5f1);
 }
 
+.guideline-rule-icon-clause {
+  border-color: #d9cffa;
+  background: linear-gradient(145deg, #fbf8ff, #f1edff);
+}
+
 .guideline-rule-icon-llm {
   border-color: #cfd9f7;
   background: linear-gradient(145deg, #f6f8ff, #eaf0ff);
@@ -803,6 +831,12 @@ th {
   background: #ebfbf7;
 }
 
+.guideline-rule-type-badge-clause {
+  border-color: #ddd3fb;
+  color: #5a43a7;
+  background: #f5f1ff;
+}
+
 .guideline-rule-type-badge-llm {
   border-color: #ced7f3;
   color: #314c8c;
@@ -818,7 +852,7 @@ th {
 .guideline-execution-grid {
   margin-top: 0.15rem;
   align-items: start;
-  grid-template-columns: minmax(14rem, 0.5fr) minmax(0, 1.5fr);
+  grid-template-columns: minmax(20rem, 0.8fr) minmax(0, 1.2fr);
 }
 
 .guideline-run-list-panel,
@@ -831,6 +865,11 @@ th {
   display: grid;
   gap: 0.18rem;
   justify-items: start;
+  font-size: 0.92rem;
+}
+
+.guideline-run-item-copy small {
+  font-size: 0.78rem;
 }
 
 .guideline-run-item-title {
@@ -873,6 +912,30 @@ th {
   text-align: left;
 }
 
+.guideline-results-table th:first-child,
+.guideline-results-table td:first-child {
+  width: 16rem;
+}
+
+.guideline-result-contract {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.guideline-result-contract-name {
+  font-weight: 700;
+}
+
+.guideline-result-contract-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.guideline-result-summary {
+  line-height: 1.5;
+}
+
 .guideline-result-row-match {
   background: rgba(71, 179, 117, 0.1);
 }
@@ -899,6 +962,11 @@ th {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
+  .guideline-results-table th:first-child,
+  .guideline-results-table td:first-child {
+    width: auto;
+  }
+
   .guideline-rule-actions {
     grid-column: 1 / -1;
     padding-left: 3.3rem;
@@ -914,6 +982,23 @@ th {
   border-top: 1px dashed #cadef4;
   margin-top: 0.3rem;
   padding-top: 0.3rem;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #4c5f88;
+}
+
+.evidence-block small {
+  display: block;
+  margin-bottom: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64779d;
+}
+
+.evidence-block p {
+  margin: 0;
 }
 
 .audit-log-wrap {

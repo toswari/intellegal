@@ -3,7 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { formatEuropeanDateTime } from "../app/datetime";
 import {
   addAuditEvent,
+  deleteStoredResultsMany,
   deleteStoredGuidelineRule,
+  deleteStoredRuns,
   getStoredResults,
   listStoredGuidelineRules,
   listStoredRuns,
@@ -12,7 +14,7 @@ import {
   type StoredCheckRun,
   upsertStoredRun
 } from "../app/localState";
-import { apiClient, type CheckResultItem, type CheckRunResponse, type CheckType } from "../api/client";
+import { ApiError, apiClient, type CheckResultItem, type CheckRunResponse, type CheckType } from "../api/client";
 import { describeGuidelineRule, getGuidelineRuleTypeDisplay, normalizeGuidelineRule } from "../app/guidelineRules";
 import { formatGuidelineRuleType, formatGuidelineRunStatusEmoji } from "../app/guidelineRunFlow";
 
@@ -30,13 +32,17 @@ export function GuidelinesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [rules, setRules] = useState<StoredGuidelineRule[]>(listStoredGuidelineRules());
   const [trackedRuns, setTrackedRuns] = useState(listStoredRuns());
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<SelectedRun | null>(null);
   const [run, setRun] = useState<CheckRunResponse | null>(null);
   const [results, setResults] = useState<CheckResultItem[] | null>(null);
   const [contractNamesById, setContractNamesById] = useState<Record<string, string>>({});
   const [contractIdsByDocumentId, setContractIdsByDocumentId] = useState<Record<string, string>>({});
   const [loadingRun, setLoadingRun] = useState(false);
+  const [deletingRuns, setDeletingRuns] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runActionError, setRunActionError] = useState<string | null>(null);
+  const [runActionMessage, setRunActionMessage] = useState<string | null>(null);
   const lastLoggedStatusByRunRef = useRef<Record<string, CheckRunResponse["status"]>>({});
   const loggedResultsRunsRef = useRef(new Set<string>());
 
@@ -235,6 +241,13 @@ export function GuidelinesPage() {
     [contractIdsByDocumentId, contractNamesById, results]
   );
 
+  const allRunsSelected = trackedRuns.length > 0 && selectedRunIds.length === trackedRuns.length;
+
+  const selectedRuns = useMemo(
+    () => trackedRuns.filter((item) => selectedRunIds.includes(item.check_id)),
+    [selectedRunIds, trackedRuns]
+  );
+
   const handleDeleteRule = (rule: StoredGuidelineRule) => {
     if (!window.confirm(`Delete guideline rule "${rule.name}"?`)) {
       return;
@@ -242,6 +255,65 @@ export function GuidelinesPage() {
 
     deleteStoredGuidelineRule(rule.id);
     setRules(listStoredGuidelineRules());
+  };
+
+  const removeRunsFromStorage = (checkIds: string[]) => {
+    deleteStoredRuns(checkIds);
+    deleteStoredResultsMany(checkIds);
+    setTrackedRuns(listStoredRuns());
+    setSelectedRunIds((current) => current.filter((checkId) => !checkIds.includes(checkId)));
+
+    if (selected && checkIds.includes(selected.check_id)) {
+      setSelected(null);
+      setRun(null);
+      setResults(null);
+      setError(null);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("checkId");
+      setSearchParams(nextParams);
+    }
+  };
+
+  const deleteGuidelineRuns = async (runs: StoredCheckRun[]) => {
+    if (runs.length === 0 || deletingRuns) {
+      return;
+    }
+
+    const remoteRuns = runs.filter((item) => item.execution_mode !== "local");
+    const confirmMessage =
+      runs.length === 1
+        ? `Delete "${runs[0].rule_name ?? "this guideline check"}"?`
+        : `Delete ${runs.length} selected guideline checks?`;
+
+    if (!window.confirm(`${confirmMessage}\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingRuns(true);
+    setRunActionError(null);
+    setRunActionMessage(null);
+
+    try {
+      if (remoteRuns.length === 1) {
+        await apiClient.deleteCheckRun(remoteRuns[0].check_id);
+      } else if (remoteRuns.length > 1) {
+        await apiClient.deleteCheckRuns({
+          check_ids: remoteRuns.map((item) => item.check_id)
+        });
+      }
+
+      removeRunsFromStorage(runs.map((item) => item.check_id));
+      setRunActionMessage(runs.length === 1 ? "Guideline check removed." : `${runs.length} guideline checks removed.`);
+    } catch (err) {
+      if (isMissingCheckError(err)) {
+        removeRunsFromStorage(runs.map((item) => item.check_id));
+        setRunActionMessage(runs.length === 1 ? "Guideline check removed." : `${runs.length} guideline checks removed.`);
+        return;
+      }
+      setRunActionError(err instanceof Error ? err.message : "Failed to delete guideline checks.");
+    } finally {
+      setDeletingRuns(false);
+    }
   };
 
   return (
@@ -309,45 +381,126 @@ export function GuidelinesPage() {
               <h3>Guideline Checks</h3>
               <p className="muted">Run rules against contracts and inspect the outcome details separately from rule setup.</p>
             </div>
-            <Link to="/guidelines/run" className="button-link secondary">
-              Run Guideline
-            </Link>
+            <div className="guideline-rule-actions">
+              {trackedRuns.length > 0 ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setSelectedRunIds(allRunsSelected ? [] : trackedRuns.map((item) => item.check_id));
+                  }}
+                  disabled={deletingRuns}
+                >
+                  {allRunsSelected ? "Clear Selection" : "Select All"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => void deleteGuidelineRuns(selectedRuns)}
+                disabled={deletingRuns || selectedRuns.length === 0}
+              >
+                {deletingRuns ? "Deleting..." : `Delete Selected (${selectedRuns.length})`}
+              </button>
+              <Link to="/guidelines/run" className="button-link secondary">
+                Run Guideline
+              </Link>
+            </div>
           </header>
           <div className="split-grid guideline-execution-grid">
             <section className="guideline-run-list-panel">
               {trackedRuns.length === 0 ? <p className="muted">No executions yet.</p> : null}
               <ul className="run-list">
-                {trackedRuns.map((item) => (
-                  <li key={item.check_id}>
-                    <button
-                      type="button"
-                      className={selected?.check_id === item.check_id ? "run-item active" : "run-item"}
-                      onClick={() => {
-                        setSearchParams({ checkId: item.check_id });
-                        setSelected({
-                          check_id: item.check_id,
-                          check_type: item.check_type,
-                          execution_mode: item.execution_mode,
-                          requested_at: item.requested_at,
-                          rule_name: item.rule_name,
-                          rule_type: item.rule_type,
-                          rule_text: item.rule_text
-                        });
-                      }}
-                    >
-                      <span className="guideline-run-item-copy">
-                        <span className="guideline-run-item-title">
-                          <span className="guideline-run-status-emoji" aria-hidden="true">
-                            {formatGuidelineRunStatusEmoji(item.status)}
+                {trackedRuns.map((item) => {
+                  const isSelected = selectedRunIds.includes(item.check_id);
+
+                  return (
+                    <li key={item.check_id}>
+                      <div className="run-row">
+                        <label className="run-select">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(event) => {
+                              setSelectedRunIds((current) =>
+                                event.target.checked
+                                  ? [...current, item.check_id]
+                                  : current.filter((checkId) => checkId !== item.check_id)
+                              );
+                            }}
+                            aria-label={`Select ${formatRunLabel(item)}`}
+                            disabled={deletingRuns}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className={selected?.check_id === item.check_id ? "run-item active" : "run-item"}
+                          onClick={() => {
+                            setSearchParams({ checkId: item.check_id });
+                            setSelected({
+                              check_id: item.check_id,
+                              check_type: item.check_type,
+                              execution_mode: item.execution_mode,
+                              requested_at: item.requested_at,
+                              rule_name: item.rule_name,
+                              rule_type: item.rule_type,
+                              rule_text: item.rule_text
+                            });
+                          }}
+                        >
+                          <span className="guideline-run-item-copy">
+                            <span className="guideline-run-item-title">
+                              <span className="guideline-run-status-emoji" aria-hidden="true">
+                                {formatGuidelineRunStatusEmoji(item.status)}
+                              </span>
+                              <span>{formatRunLabel(item)}</span>
+                            </span>
+                            <small>Created {formatEuropeanDateTime(item.requested_at)}</small>
                           </span>
-                          <span>{formatRunLabel(item)}</span>
-                        </span>
-                        <small>Created {formatEuropeanDateTime(item.requested_at)}</small>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger icon-button"
+                          onClick={() => void deleteGuidelineRuns([item])}
+                          disabled={deletingRuns}
+                          aria-label={`Delete ${formatRunLabel(item)}`}
+                          title={`Delete ${formatRunLabel(item)}`}
+                        >
+                          <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none">
+                            <path
+                              d="M4 7h16"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                            />
+                            <path
+                              d="M9 4h6"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                            />
+                            <path
+                              d="M7 7l1 11a2 2 0 0 0 2 1.8h4a2 2 0 0 0 2-1.8L17 7"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M10 11v5M14 11v5"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
+              {runActionMessage ? <p className="muted">{runActionMessage}</p> : null}
+              {runActionError ? <p className="error-text">{runActionError}</p> : null}
             </section>
 
             <section className="guideline-run-detail-panel">
@@ -399,8 +552,6 @@ export function GuidelinesPage() {
                       <thead>
                         <tr>
                           <th>Contract</th>
-                          <th>Outcome</th>
-                          <th>Confidence</th>
                           <th>Summary</th>
                         </tr>
                       </thead>
@@ -411,20 +562,30 @@ export function GuidelinesPage() {
                             className={`guideline-result-row guideline-result-row-${item.outcome}`}
                           >
                             <td>
-                              {item.contractId && item.contractName ? (
-                                <Link to={`/contracts/${encodeURIComponent(item.contractId)}/edit`}>
-                                  {item.contractName}
-                                </Link>
-                              ) : item.contractName ? (
-                                item.contractName
-                              ) : (
-                                <code>{item.document_id}</code>
-                              )}
+                              <div className="guideline-result-contract">
+                                <div className="guideline-result-contract-name">
+                                  {item.contractId && item.contractName ? (
+                                    <Link to={`/contracts/${encodeURIComponent(item.contractId)}/edit`}>
+                                      {item.contractName}
+                                    </Link>
+                                  ) : item.contractName ? (
+                                    item.contractName
+                                  ) : (
+                                    <code>{item.document_id}</code>
+                                  )}
+                                </div>
+                                <div className="guideline-result-contract-meta">
+                                  <span className={`chip chip-compact ${getGuidelineOutcomeChipClassName(item.outcome)}`}>
+                                    {item.outcome}
+                                  </span>
+                                  <span className="chip chip-compact chip-neutral">
+                                    {Math.round(item.confidence * 100)}% confidence
+                                  </span>
+                                </div>
+                              </div>
                             </td>
-                            <td>{item.outcome}</td>
-                            <td>{Math.round(item.confidence * 100)}%</td>
                             <td>
-                              {item.summary ?? "-"}
+                              <div className="guideline-result-summary">{item.summary ?? "-"}</div>
                               {item.evidence?.map((snippet, index) => (
                                 <div key={`${snippet.page_number}-${index}`} className="evidence-block">
                                   <small>Page {snippet.page_number}</small>
@@ -449,4 +610,20 @@ export function GuidelinesPage() {
 
 function formatRunLabel(item: StoredCheckRun) {
   return item.rule_name?.trim() || "Guideline run";
+}
+
+function isMissingCheckError(err: unknown) {
+  return err instanceof ApiError && err.status === 404 && err.code === "not_found";
+}
+
+function getGuidelineOutcomeChipClassName(outcome: CheckResultItem["outcome"]) {
+  if (outcome === "match") {
+    return "chip-success";
+  }
+
+  if (outcome === "review") {
+    return "chip-warning";
+  }
+
+  return "chip-danger";
 }

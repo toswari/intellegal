@@ -17,7 +17,7 @@ ALTER TABLE check_runs
 
 ALTER TABLE check_runs
     ADD CONSTRAINT check_runs_check_type_check
-    CHECK (check_type IN ('missing_clause', 'company_name'));
+    CHECK (check_type IN ('missing_clause'));
 
 ALTER TABLE documents
     DROP COLUMN IF EXISTS file_order,

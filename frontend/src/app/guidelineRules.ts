@@ -1,15 +1,16 @@
-export type GuidelineRuleType = "llm_review" | "keyword_match";
+export type GuidelineRuleType = "clause_presence" | "gemini_review" | "keyword_match";
+export type LegacyGuidelineRuleType = "llm_review";
 
 export type GuidelineRuleTypeDisplay = {
   icon: string;
   label: string;
-  tone: "strict" | "llm";
+  tone: "strict" | "clause" | "llm";
 };
 
 export type StoredGuidelineRule = {
   id: string;
   name: string;
-  rule_type?: GuidelineRuleType;
+  rule_type?: GuidelineRuleType | LegacyGuidelineRuleType;
   instructions: string;
   auto_run_on_new_contract?: boolean;
   required_terms?: string[];
@@ -33,7 +34,7 @@ export type NormalizedGuidelineRule = {
 export function normalizeGuidelineRule(rule: StoredGuidelineRule): NormalizedGuidelineRule {
   return {
     ...rule,
-    rule_type: rule.rule_type ?? "llm_review",
+    rule_type: normalizeGuidelineRuleType(rule.rule_type),
     auto_run_on_new_contract: rule.auto_run_on_new_contract ?? false,
     required_terms: dedupeTerms(rule.required_terms ?? []),
     forbidden_terms: dedupeTerms(rule.forbidden_terms ?? [])
@@ -103,11 +104,28 @@ export function getGuidelineRuleTypeDisplay(ruleType: GuidelineRuleType): Guidel
     };
   }
 
+  if (ruleType === "clause_presence") {
+    return {
+      icon: "📄",
+      label: "Lexical clause check",
+      tone: "clause"
+    };
+  }
+
   return {
     icon: "🧠",
-    label: "LLM contract review",
+    label: "Gemini contract review",
     tone: "llm"
   };
+}
+
+export function normalizeGuidelineRuleType(ruleType: StoredGuidelineRule["rule_type"]): GuidelineRuleType {
+  if (ruleType === "keyword_match" || ruleType === "clause_presence" || ruleType === "gemini_review") {
+    return ruleType;
+  }
+
+  // Legacy frontend rules used llm_review for what is now the lexical clause-presence path.
+  return "clause_presence";
 }
 
 function dedupeTerms(terms: string[]): string[] {

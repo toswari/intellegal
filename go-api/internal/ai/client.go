@@ -76,15 +76,6 @@ type AnalysisResult struct {
 	Diagnostics map[string]any       `json:"diagnostics"`
 }
 
-type AnalyzeCompanyNameRequest struct {
-	JobID          string   `json:"job_id"`
-	RequestID      string   `json:"request_id,omitempty"`
-	CheckID        string   `json:"check_id"`
-	DocumentIDs    []string `json:"document_ids,omitempty"`
-	OldCompanyName string   `json:"old_company_name"`
-	NewCompanyName string   `json:"new_company_name,omitempty"`
-}
-
 type AnalyzeLLMReviewRequest struct {
 	JobID        string            `json:"job_id"`
 	RequestID    string            `json:"request_id,omitempty"`
@@ -195,14 +186,6 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 func (c *Client) AnalyzeClause(ctx context.Context, req AnalyzeClauseRequest) (AnalysisResult, error) {
 	var out acceptedJobResponse[AnalysisResult]
 	if err := c.postJSONWithResponse(ctx, "/internal/v1/analyze/clause", req, &out); err != nil {
-		return AnalysisResult{}, err
-	}
-	return out.Result, nil
-}
-
-func (c *Client) AnalyzeCompanyName(ctx context.Context, req AnalyzeCompanyNameRequest) (AnalysisResult, error) {
-	var out acceptedJobResponse[AnalysisResult]
-	if err := c.postJSONWithResponse(ctx, "/internal/v1/analyze/company-name", req, &out); err != nil {
 		return AnalysisResult{}, err
 	}
 	return out.Result, nil

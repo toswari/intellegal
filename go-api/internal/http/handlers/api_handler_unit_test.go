@@ -41,10 +41,6 @@ func (s *searchCapturingAIClient) AnalyzeClause(context.Context, ai.AnalyzeClaus
 	return ai.AnalysisResult{}, nil
 }
 
-func (s *searchCapturingAIClient) AnalyzeCompanyName(context.Context, ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error) {
-	return ai.AnalysisResult{}, nil
-}
-
 func (s *searchCapturingAIClient) AnalyzeLLMReview(context.Context, ai.AnalyzeLLMReviewRequest) (ai.AnalysisResult, error) {
 	return ai.AnalysisResult{}, nil
 }
@@ -453,26 +449,6 @@ func TestCreateClauseCheck_ReturnsBadRequestForShortText(t *testing.T) {
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/clause-presence", map[string]any{
 		"required_clause_text": "abc",
 	}, api.CreateClauseCheck)
-
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", resp.Code)
-	}
-
-	// Assert
-	body := decodeJSONBody(t, resp)
-	if body.Error.Code != "invalid_argument" {
-		t.Fatalf("expected invalid_argument error code, got %q", body.Error.Code)
-	}
-}
-
-func TestCreateCompanyNameCheck_ReturnsBadRequestForShortOldCompanyName(t *testing.T) {
-	// Arrange
-	api := NewAPI(noopLogger{}, nil, nil, nil)
-
-	// Act
-	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/company-name", map[string]any{
-		"old_company_name": " ",
-	}, api.CreateCompanyNameCheck)
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.Code)

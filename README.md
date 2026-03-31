@@ -10,7 +10,7 @@
 ### Problem
 Legal teams spend significant time on repetitive contract review tasks:
 - Finding contracts that miss required clauses
-- Identifying contracts with outdated company names
+- Reviewing contracts against legal guidance using both lexical and LLM-based checks
 - Comparing contract versions for consistency
 
 This process is currently semi-manual, slow, and hard to scale.
@@ -41,8 +41,8 @@ This process is currently semi-manual, slow, and hard to scale.
 1. Missing Clause Detection
 - Find all contracts that do not contain a required legal clause.
 
-2. Company Name Update Detection
-- Find contracts containing an old legal entity name that should be replaced.
+2. Guided Contract Review
+- Run either a lexical clause check or a Gemini-powered review, depending on whether exact wording or legal interpretation matters more.
 
 3. Contract Comparison and Evidence Review
 - Review where a clause/entity appears, with page-level evidence snippets.
@@ -53,7 +53,7 @@ This process is currently semi-manual, slow, and hard to scale.
 
 ### 📝 User Stories (MVP)
 1. As a Legal Reviewer, I upload/select contracts and run a "missing clause" check so I can prioritize remediation quickly.
-2. As a Legal Reviewer, I run an "old company name" check so I can produce an actionable list for updates.
+2. As a Legal Reviewer, I choose between lexical clause checks, strict keyword checks, and Gemini reviews depending on the type of legal question.
 3. As a Legal Reviewer, I open result details and see source snippet + page so I can trust and verify findings.
 4. As a Legal Operations Lead, I view run history and status so I can report progress and bottlenecks.
 5. As a Platform Engineer, I inspect pipeline failures (OCR/indexing/API) so I can resolve issues fast.
@@ -62,7 +62,8 @@ This process is currently semi-manual, slow, and hard to scale.
 - Document ingest (PDF/JPEG)
 - OCR + text extraction pipeline
 - Clause-presence checks
-- Company-name checks
+- Gemini contract review
+- Strict keyword checks
 - Contract comparison
 - Result confidence + evidence snippets
 - Check run history
@@ -106,7 +107,7 @@ This process is currently semi-manual, slow, and hard to scale.
 3. Checks
 - New Guideline Run
   - Step 1: Select scope (all contracts / filtered set)
-  - Step 2: Choose check type (missing clause / company name)
+  - Step 2: Choose rule type (lexical clause / Gemini review / strict keyword)
   - Step 3: Input parameters
   - Step 4: Review and run
 
@@ -140,26 +141,24 @@ This process is currently semi-manual, slow, and hard to scale.
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryTextColor': '#1F2937', 'lineColor': '#5B6B7A', 'fontFamily': 'Inter, Segoe UI, sans-serif' }}}%%
 flowchart LR
-    U["👤 Legal User"] --> FE["🖥️ frontend (React SPA via Nginx)<br/>ports: 80 (container), 3000 (host)"]
-    FE --> GO["⚙️ go-api (Go net/http REST API)<br/>ports: 8080 (container/host)"]
+    U["👤 Legal User"] -->|upload contracts, run guidelines, ask contract questions| FE["🖥️ frontend (React SPA)<br/>Vite dev on :3000, Nginx image for production"]
+    FE -->|REST calls for contracts, documents, guidelines, search, chat| GO["⚙️ go-api (Go chi/net-http REST API)<br/>public API on :8080"]
 
-    GO --> ING["📥 go-api ingestion module<br/>port: 8080"]
-    GO --> AUD["🧾 go-api audit module<br/>port: 8080"]
-    GO --> PAI["🤖 py-ai-api (FastAPI internal API)<br/>ports: 8000 (container/host)"]
+    GO -->|create/list contracts and files| DOC["📄 document + contract workflows<br/>upload, metadata, content, chat, guideline runs"]
+    GO -->|persist runs, results, and audit events| AUD["🧾 audit + persistence layer<br/>request state, events, check results"]
+    GO -->|internal extract, index, search, review, chat jobs| PAI["🤖 py-ai-api (FastAPI internal API)<br/>internal jobs on :8000"]
 
-    PAI --> EXT["🔎 extraction/OCR pipeline (Python worker)<br/>port: 8000"]
-    PAI --> IDX["🧠 indexing/embedding pipeline (Python worker)<br/>port: 8000"]
+    PAI -->|extract uploaded files into normalized text| EXT["🔎 extraction pipeline<br/>PDF text, DOCX parsing, OCR for images"]
+    PAI -->|chunk, embed, and retrieve sections| IDX["🧠 indexing + search pipeline<br/>local hash embeddings + chunking"]
+    PAI -->|run clause checks and LLM-backed review/chat| ANA["⚖️ analysis pipeline<br/>clause checks, Gemini review, contract chat"]
 
-    IDX --> VDB[("📚 qdrant (vector database)<br/>ports: 6333 HTTP, 6334 gRPC")]
-    GO --> RDB[("🗄️ postgres (transactional database)<br/>port: 5432")]
-    ING --> OBJ[("🗃️ object storage (MinIO bucket)<br/>contracts")]
+    GO -->|contracts, document metadata, checks, results| RDB[("🗄️ postgres<br/>contracts, runs, audit, chunk search tables")]
+    DOC -->|store original files and fetch contents| OBJ[("🗃️ MinIO object storage<br/>bucket: contracts")]
+    PAI -->|upsert and semantic-search chunks| VDB[("📚 qdrant<br/>vector chunk index")]
+    PAI -->|chunk search rows and diagnostics| RDB
 
-    PAI --> LLM["☁️ LLM provider (Azure AI Foundry)<br/>external endpoint"]
-    PAI --> VDB
-    PAI --> RDB
-
-    GO --> COPY["📦 external contract-copy REST API<br/>external endpoint"]
-    AUD --> RDB
+    ANA -->|Gemini review and contract Q&A| LLM["☁️ Google Gemini API<br/>external endpoint"]
+    GO -. optional document copy event .-> COPY["📦 external copy API<br/>optional outbound integration"]
 
     classDef user fill:#E3F2FD,stroke:#64B5F6,color:#1F2937,stroke-width:1px;
     classDef frontend fill:#E8F5E9,stroke:#81C784,color:#1F2937,stroke-width:1px;
@@ -170,8 +169,8 @@ flowchart LR
 
     class U user;
     class FE frontend;
-    class GO,ING,AUD api;
-    class PAI,EXT,IDX worker;
+    class GO,DOC,AUD api;
+    class PAI,EXT,IDX,ANA worker;
     class VDB,RDB,OBJ data;
     class LLM,COPY external;
 ```
@@ -187,31 +186,34 @@ sequenceDiagram
     box rgb(255,243,224) "⚙️ Application Layer"
         participant API as "⚙️ go-api :8080"
         participant AI as "🤖 py-ai-api :8000"
-        participant X as "🔎 extraction/index workers"
+        participant X as "🔎 extraction/index pipelines"
     end
     box rgb(236,239,241) "🗄️ Data & External Layer"
         participant Q as "📚 qdrant :6333/:6334"
         participant DB as "🗄️ postgres :5432"
-        participant C as "📦 external copy API"
+        participant O as "🗃️ MinIO"
+        participant G as "☁️ Gemini API"
+        participant C as "📦 optional external copy API"
     end
 
     User->>UI: Upload contracts / run check
-    UI->>API: POST /documents or POST /checks/*
-    API->>AI: Trigger extract/index/analyze job
-    AI->>X: Extract + normalize text
-    X->>Q: Upsert chunks + embeddings
-    API->>DB: Save metadata + run record
-    AI->>Q: Retrieve relevant chunks
-    AI->>DB: Save findings + evidence
-    API->>C: Store compliant additional copy
+    UI->>API: POST /contracts, /documents, /guidelines, /contracts/{id}/chat
+    API->>O: Store original file
+    API->>DB: Save metadata, runs, audit events
+    API->>AI: Trigger extract/index/search/analyze job
+    AI->>X: Extract text, chunk content, build local vectors
+    X->>Q: Upsert/retrieve document chunks
+    AI->>DB: Read/write chunk search rows and diagnostics
+    AI->>G: LLM review or contract chat when requested
+    API-->>C: Send copy event only when external copy is configured
     API-->>UI: Return results with confidence/evidence
 ```
 
 ### 🤔 Why This Architecture
 - Keeps UI simple and task-focused for legal users.
-- Moves heavy OCR/RAG workloads into a dedicated internal service.
+- Moves extraction, indexing, search, and LLM-backed analysis into a dedicated internal service.
 - Supports transparent evidence-based AI outputs.
-- Maps cleanly to containerized deployment and Azure hosting.
+- Maps cleanly to containerized deployment with optional external integrations.
 
 ---
 
@@ -305,8 +307,8 @@ Endpoints:
 - 🔵 `POST /api/v1/documents` - Create document ingest job.
 - 🟢 `GET /api/v1/documents` - List documents (supports filters/pagination).
 - 🟢 `GET /api/v1/documents/{document_id}` - Get one document.
-- 🔵 `POST /api/v1/guidelines/clause-presence` - Start missing-clause guideline.
-- 🔵 `POST /api/v1/guidelines/company-name` - Start company-name guideline.
+- 🔵 `POST /api/v1/guidelines/clause-presence` - Start lexical clause-presence guideline.
+- 🔵 `POST /api/v1/guidelines/llm-review` - Start Gemini-backed guideline review.
 - 🟢 `GET /api/v1/guidelines/{check_id}` - Get guideline run status.
 - 🟢 `GET /api/v1/guidelines/{check_id}/results` - Get guideline results with evidence.
 
@@ -324,7 +326,7 @@ Endpoints:
 - 🔵 `POST /internal/v1/extract` - Extract text/OCR from source.
 - 🔵 `POST /internal/v1/index` - Chunk/embed/index into Qdrant.
 - 🔵 `POST /internal/v1/analyze/clause` - Analyze required clause presence.
-- 🔵 `POST /internal/v1/analyze/company-name` - Analyze old/new company name usage.
+- 🔵 `POST /internal/v1/analyze/llm-review` - Run Gemini-backed contract review.
 
 </details>
 
@@ -351,7 +353,7 @@ Endpoints:
 4. Text is normalized, chunked, embedded, and indexed in Qdrant.
 5. Legal user submits a check:
 - "Find contracts missing clause X"
-- "Find contracts containing old company name Y"
+- "Run a Gemini review for termination for convenience"
 6. Retrieval fetches relevant chunks with metadata filters.
 7. Python AI pipeline evaluates results and produces:
 - matched/not-matched status
@@ -481,7 +483,7 @@ erDiagram
 
 - `check_runs`
   - `id (uuid, pk)`
-  - `check_type` (missing_clause/company_name)
+  - `check_type` (clause_presence/llm_review)
   - `input_payload (jsonb)`
   - `requested_by`
   - `status` (queued/running/completed/failed)

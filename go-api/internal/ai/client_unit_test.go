@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -76,41 +75,6 @@ func TestAnalyzeClause_PostsExpectedRequest(t *testing.T) {
 	}
 	if len(result.Items) != 1 || result.Items[0].DocumentID != "doc-1" {
 		t.Fatalf("unexpected analyze result items: %#v", result.Items)
-	}
-}
-
-func TestAnalyzeCompanyName_ReturnsErrorOnNon2xxResponse(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/v1/analyze/company-name" {
-			t.Fatalf("unexpected path: %q", r.URL.Path)
-		}
-		http.Error(w, "python api unavailable", http.StatusServiceUnavailable)
-	}))
-	defer ts.Close()
-
-	client := NewClient(ts.URL, "", time.Second)
-
-	// Act
-	_, err := client.AnalyzeCompanyName(context.Background(), AnalyzeCompanyNameRequest{
-		JobID:          "job-2",
-		CheckID:        "check-2",
-		DocumentIDs:    []string{"doc-1", "doc-2"},
-		OldCompanyName: "Old Corp",
-		NewCompanyName: "New Corp",
-	})
-	if err == nil {
-		t.Fatal("expected error for non-2xx response")
-	}
-
-	// Assert
-	if !strings.Contains(err.Error(), "unexpected status 503") {
-		t.Fatalf("expected status code in error, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "python api unavailable") {
-		t.Fatalf("expected upstream response body in error, got: %v", err)
 	}
 }
 

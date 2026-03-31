@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,14 +16,12 @@ import (
 
 type capturingAIClient struct {
 	clauseReq  *ai.AnalyzeClauseRequest
-	companyReq *ai.AnalyzeCompanyNameRequest
 	llmReq     *ai.AnalyzeLLMReviewRequest
 	chatReq    *ai.ContractChatRequest
 	extractReq *ai.ExtractRequest
 	indexReq   *ai.IndexRequest
 	searchReq  *ai.SearchSectionsRequest
 	clauseErr  error
-	companyErr error
 	llmErr     error
 	chatErr    error
 	extractErr error
@@ -49,25 +46,6 @@ func (c *capturingAIClient) AnalyzeClause(_ context.Context, req ai.AnalyzeClaus
 			Evidence: []ai.AnalysisEvidenceSnippet{
 				{SnippetText: "must include payment terms", PageNumber: 1, ChunkID: "1", Score: 0.91},
 			},
-		})
-	}
-	return ai.AnalysisResult{Items: items}, nil
-}
-
-func (c *capturingAIClient) AnalyzeCompanyName(_ context.Context, req ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error) {
-	copyReq := req
-	copyReq.DocumentIDs = append([]string(nil), req.DocumentIDs...)
-	c.companyReq = &copyReq
-	if c.companyErr != nil {
-		return ai.AnalysisResult{}, c.companyErr
-	}
-	items := make([]ai.AnalysisResultItem, 0, len(req.DocumentIDs))
-	for _, documentID := range req.DocumentIDs {
-		items = append(items, ai.AnalysisResultItem{
-			DocumentID: documentID,
-			Outcome:    "review",
-			Confidence: 0.6,
-			Summary:    "Both old and new names found.",
 		})
 	}
 	return ai.AnalysisResult{Items: items}, nil
@@ -205,50 +183,6 @@ func TestRunClauseCheck_MarksCompletedAndPassesRequest(t *testing.T) {
 	}
 	if len(run.Items[0].Evidence) != 1 {
 		t.Fatalf("expected evidence to be mapped, got %d snippets", len(run.Items[0].Evidence))
-	}
-}
-
-func TestRunCompanyNameCheck_MarksFailedWhenAIClientReturnsError(t *testing.T) {
-	// Arrange
-	aiClient := &capturingAIClient{companyErr: errors.New("upstream timeout")}
-	api := NewAPI(noopLogger{}, aiClient, nil, nil)
-
-	checkID := "00000000-0000-4000-8000-000000000021"
-	docID := "00000000-0000-4000-8000-000000000022"
-	api.checks[checkID] = checkRun{
-		CheckID:     checkID,
-		Status:      checkStatusQueued,
-		CheckType:   checkTypeCompany,
-		RequestedAt: time.Now().UTC(),
-		DocumentIDs: []string{docID},
-	}
-
-	// Act
-	api.runCompanyNameCheck(checkID, companyNameCheckRequest{
-		OldCompanyName: "Old Corp",
-		NewCompanyName: "New Corp",
-	}, "req-789")
-
-	// Assert
-	if aiClient.companyReq == nil {
-		t.Fatal("expected AnalyzeCompanyName to be called")
-	}
-	if aiClient.companyReq.CheckID != checkID {
-		t.Fatalf("expected check id %q, got %q", checkID, aiClient.companyReq.CheckID)
-	}
-	if aiClient.companyReq.RequestID != "req-789" {
-		t.Fatalf("expected request id req-789, got %q", aiClient.companyReq.RequestID)
-	}
-
-	run := api.checks[checkID]
-	if run.Status != checkStatusFailed {
-		t.Fatalf("expected status failed, got %q", run.Status)
-	}
-	if run.FinishedAt == nil {
-		t.Fatal("expected finished_at to be set")
-	}
-	if run.FailureReason != "upstream timeout" {
-		t.Fatalf("expected failure reason to be propagated, got %q", run.FailureReason)
 	}
 }
 

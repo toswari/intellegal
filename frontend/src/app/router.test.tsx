@@ -87,12 +87,14 @@ vi.mock("../api/client", async (importOriginal) => {
       createDocument: vi.fn(),
       deleteDocument: vi.fn(),
       startClausePresenceCheck: vi.fn(),
-      startCompanyNameCheck: vi.fn()
+      startLLMReviewCheck: vi.fn(),
+      deleteCheckRun: vi.fn(),
+      deleteCheckRuns: vi.fn()
     }
   };
 });
 import { AppShell } from "./AppShell";
-import { apiClient } from "../api/client";
+import { ApiError, apiClient } from "../api/client";
 import { AuditPage } from "../pages/AuditPage";
 import { BatchImportContractsPage } from "../pages/BatchImportContractsPage";
 import { ContractsPage } from "../pages/ContractsPage";
@@ -202,6 +204,14 @@ describe("router", () => {
           instructions: "Review whether the company is clearly identified as an Estonian legal entity.",
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z"
+        },
+        {
+          id: "rule-3",
+          name: "Termination review",
+          rule_type: "gemini_review",
+          instructions: "Review whether the contract includes a termination for convenience right.",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z"
         }
       ])
     );
@@ -209,9 +219,11 @@ describe("router", () => {
     renderAt("/guidelines");
 
     expect(screen.getByText("🔎")).toBeVisible();
+    expect(screen.getByText("📄")).toBeVisible();
     expect(screen.getByText("🧠")).toBeVisible();
     expect(screen.getByText("Strict keyword check")).toBeVisible();
-    expect(screen.getByText("LLM contract review")).toBeVisible();
+    expect(screen.getByText("Lexical clause check")).toBeVisible();
+    expect(screen.getByText("Gemini contract review")).toBeVisible();
   });
 
   it("shows checked contract names as clickable links in guideline results", async () => {
@@ -330,12 +342,131 @@ describe("router", () => {
     confirmSpy.mockRestore();
   });
 
+  it("deletes a single guideline check from the guidelines view", async () => {
+    window.localStorage.setItem(
+      "ldi.checkRuns",
+      JSON.stringify([
+        {
+          check_id: "check-1",
+          check_type: "clause_presence",
+          execution_mode: "remote",
+          status: "completed",
+          requested_at: "2026-01-02T03:04:05Z",
+          rule_name: "Payment terms"
+        }
+      ])
+    );
+
+    vi.mocked(apiClient.deleteCheckRun).mockResolvedValueOnce(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderAt("/guidelines");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Payment terms" }));
+
+    await waitFor(() => {
+      expect(apiClient.deleteCheckRun).toHaveBeenCalledWith("check-1");
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Payment terms")).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem("ldi.checkRuns") ?? "[]")).toEqual([]);
+    confirmSpy.mockRestore();
+  });
+
+  it("removes a stale guideline check locally when delete returns not found", async () => {
+    window.localStorage.setItem(
+      "ldi.checkRuns",
+      JSON.stringify([
+        {
+          check_id: "check-1",
+          check_type: "clause_presence",
+          execution_mode: "remote",
+          status: "completed",
+          requested_at: "2026-01-02T03:04:05Z",
+          rule_name: "Payment terms"
+        }
+      ])
+    );
+
+    vi.mocked(apiClient.deleteCheckRun).mockRejectedValueOnce(
+      new ApiError(404, {
+        error: {
+          code: "not_found",
+          message: "check not found",
+          retriable: false
+        }
+      })
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderAt("/guidelines");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Payment terms" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Payment terms")).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem("ldi.checkRuns") ?? "[]")).toEqual([]);
+    confirmSpy.mockRestore();
+  });
+
+  it("bulk deletes selected guideline checks from the guidelines view", async () => {
+    window.localStorage.setItem(
+      "ldi.checkRuns",
+      JSON.stringify([
+        {
+          check_id: "check-1",
+          check_type: "clause_presence",
+          execution_mode: "remote",
+          status: "completed",
+          requested_at: "2026-01-02T03:04:05Z",
+          rule_name: "Payment terms"
+        },
+        {
+          check_id: "check-2",
+          check_type: "llm_review",
+          execution_mode: "remote",
+          status: "completed",
+          requested_at: "2026-01-01T03:04:05Z",
+          rule_name: "Risk review"
+        }
+      ])
+    );
+
+    vi.mocked(apiClient.deleteCheckRuns).mockResolvedValueOnce(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderAt("/guidelines");
+
+    fireEvent.click(screen.getByLabelText("Select Payment terms"));
+    fireEvent.click(screen.getByLabelText("Select Risk review"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected (2)" }));
+
+    await waitFor(() => {
+      expect(apiClient.deleteCheckRuns).toHaveBeenCalledWith({
+        check_ids: ["check-1", "check-2"]
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Payment terms")).not.toBeInTheDocument();
+      expect(screen.queryByText("Risk review")).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem("ldi.checkRuns") ?? "[]")).toEqual([]);
+    confirmSpy.mockRestore();
+  });
+
   it("renders dedicated guideline creation route", () => {
     renderAt("/guidelines/new");
 
     expect(screen.getByRole("heading", { level: 2, name: "New Guideline Rule" })).toBeVisible();
     expect(screen.getByLabelText("Rule Name")).toBeVisible();
-    expect(screen.getByLabelText("Rule Instructions")).toBeVisible();
+    expect(screen.getByLabelText("Clause Text to Look For")).toBeVisible();
+    expect(screen.getByText("How lexical clause check works")).toBeVisible();
+    expect(screen.getByRole("option", { name: "Gemini contract review" })).toBeVisible();
     expect(screen.getByLabelText("Run this rule automatically for every new contract.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Back to Guidelines" })).toHaveAttribute("href", "/guidelines");
   });
@@ -414,7 +545,7 @@ describe("router", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Run Guideline" }));
 
     expect(await screen.findByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /Keyword rule/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Keyword ruleCreated/i }));
     expect(screen.getByText("Flagged items: 0")).toBeVisible();
   });
 

@@ -81,30 +81,6 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorResponse'
 
-  /internal/v1/analyze/company-name:
-    post:
-      summary: Start company-name analysis job
-      operationId: startCompanyNameAnalysis
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnalyzeCompanyNameRequest'
-      responses:
-        '202':
-          description: Job accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AcceptedJobResponse'
-        '400':
-          $ref: '#/components/responses/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/ErrorResponse'
-        '500':
-          $ref: '#/components/responses/ErrorResponse'
-
   /internal/v1/jobs/{job_id}:
     get:
       summary: Get internal job status
@@ -165,7 +141,7 @@ components:
 
     InternalJobType:
       type: string
-      enum: [extract, index, analyze_clause, analyze_company_name]
+      enum: [extract, index, analyze_clause]
 
     InternalJobStatus:
       type: string
@@ -255,28 +231,6 @@ components:
         required_clause_text:
           type: string
         context_hint:
-          type: string
-
-    AnalyzeCompanyNameRequest:
-      type: object
-      required: [job_id, check_id, old_company_name]
-      properties:
-        job_id:
-          type: string
-          format: uuid
-        request_id:
-          type: string
-        check_id:
-          type: string
-          format: uuid
-        document_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        old_company_name:
-          type: string
-        new_company_name:
           type: string
 
     InternalJobStatusResponse:

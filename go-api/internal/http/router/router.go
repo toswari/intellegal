@@ -48,7 +48,6 @@ func New(
 	registerCheckRoutes := func(prefix string) {
 		r.Route(prefix, func(r chi.Router) {
 			r.Post("/clause-presence", api.CreateClauseCheck)
-			r.Post("/company-name", api.CreateCompanyNameCheck)
 			r.Post("/llm-review", api.CreateLLMReviewCheck)
 			r.Delete("/", api.DeleteChecks)
 			r.Route("/{check_id}", func(r chi.Router) {

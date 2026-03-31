@@ -18,6 +18,12 @@ flowchart LR
 - Return one result per document
 - Show summary, confidence, and evidence snippets
 
+## Frontend rule mapping
+
+- `Lexical clause check`: frontend rule type `clause_presence`; runs the backend clause-presence analysis described in this doc
+- `Gemini contract review`: frontend rule type `gemini_review`; uses the separate LLM review path and is not covered by this doc
+- `Strict keyword check`: frontend rule type `keyword_match`; runs locally in the frontend and is not covered by this doc
+
 ## Technical flow
 
 ```mermaid
@@ -117,12 +123,13 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A["Clause-presence check"] --> B["Remote backend analysis"]
-    C["Strict keyword rule"] --> D["Separate local frontend path"]
+    A["Lexical clause check"] --> B["Remote backend clause-presence analysis"]
+    C["Gemini contract review"] --> D["Separate LLM review path"]
+    E["Strict keyword rule"] --> F["Separate local frontend path"]
 ```
 
-- This doc describes the backend clause-presence feature
-- It is different from the local strict keyword guideline path in the UI
+- This doc describes the backend clause-presence feature behind the `Lexical clause check` rule type
+- It is different from both the `Gemini contract review` path and the local `Strict keyword check` path in the UI
 
 ## Limitations
 - Lexical matching can miss paraphrased clauses

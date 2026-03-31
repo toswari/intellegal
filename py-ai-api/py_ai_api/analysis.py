@@ -112,100 +112,6 @@ class AnalysisPipeline:
 
         return AnalysisResult(items=items, diagnostics={"document_count": len(docs), "strategy": "lexical_clause"})
 
-    def analyze_company_name(
-        self,
-        *,
-        old_company_name: str,
-        new_company_name: str | None,
-        document_ids: list[str] | None,
-    ) -> AnalysisResult:
-        docs = sorted({doc_id for doc_id in (document_ids or []) if doc_id})
-        old_name = old_company_name.strip().lower()
-        new_name = (new_company_name or "").strip().lower()
-        if not docs:
-            return AnalysisResult(items=[], diagnostics={"fallback": "no_documents"})
-
-        items: list[AnalysisResultItem] = []
-        for document_id in docs:
-            chunks = self._qdrant.get_document_chunks(document_id=document_id, limit=64)
-            if not chunks:
-                items.append(
-                    AnalysisResultItem(
-                        document_id=document_id,
-                        outcome="review",
-                        confidence=0.35,
-                        summary="No indexed chunks were found for this document; manual review is required.",
-                    )
-                )
-                continue
-
-            old_hits = [chunk for chunk in chunks if old_name and old_name in str(chunk.get("text") or "").lower()]
-            new_hits = [chunk for chunk in chunks if new_name and new_name in str(chunk.get("text") or "").lower()]
-
-            if new_name:
-                if new_hits and not old_hits:
-                    items.append(
-                        AnalysisResultItem(
-                            document_id=document_id,
-                            outcome="match",
-                            confidence=0.9,
-                            summary="New company name is present and old name was not found.",
-                            evidence=_collect_name_evidence(old_hits, new_hits),
-                        )
-                    )
-                elif old_hits and not new_hits:
-                    items.append(
-                        AnalysisResultItem(
-                            document_id=document_id,
-                            outcome="missing",
-                            confidence=0.25,
-                            summary="Old company name is still present and new name was not found.",
-                            evidence=_collect_name_evidence(old_hits, new_hits),
-                        )
-                    )
-                elif old_hits and new_hits:
-                    items.append(
-                        AnalysisResultItem(
-                            document_id=document_id,
-                            outcome="review",
-                            confidence=0.6,
-                            summary="Both old and new company names were found; manual confirmation is required.",
-                            evidence=_collect_name_evidence(old_hits, new_hits),
-                        )
-                    )
-                else:
-                    items.append(
-                        AnalysisResultItem(
-                            document_id=document_id,
-                            outcome="review",
-                            confidence=0.45,
-                            summary="Neither old nor new company name was found in indexed chunks.",
-                        )
-                    )
-                continue
-
-            if old_hits:
-                items.append(
-                    AnalysisResultItem(
-                        document_id=document_id,
-                        outcome="match",
-                        confidence=0.85,
-                        summary="Old company name was found in the document.",
-                        evidence=_collect_name_evidence(old_hits, []),
-                    )
-                )
-            else:
-                items.append(
-                    AnalysisResultItem(
-                        document_id=document_id,
-                        outcome="missing",
-                        confidence=0.25,
-                        summary="Old company name was not found in indexed chunks.",
-                    )
-                )
-
-        return AnalysisResult(items=items, diagnostics={"document_count": len(docs), "strategy": "lexical_company"})
-
     def analyze_llm_review(
         self,
         *,
@@ -318,14 +224,6 @@ def _build_evidence(chunk: dict[str, Any] | None, score: float) -> list[Analysis
             score=round(_clamp_confidence(score), 3),
         )
     ]
-
-
-def _collect_name_evidence(old_hits: list[dict[str, Any]], new_hits: list[dict[str, Any]]) -> list[AnalysisEvidenceSnippet]:
-    evidence: list[AnalysisEvidenceSnippet] = []
-    selected = old_hits[:1] + new_hits[:1]
-    for chunk in selected:
-        evidence.extend(_build_evidence(chunk, 0.9))
-    return evidence
 
 
 def _tokenize(text: str) -> set[str]:

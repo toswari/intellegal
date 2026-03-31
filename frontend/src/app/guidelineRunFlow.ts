@@ -8,7 +8,8 @@ import {
 import {
   describeGuidelineRule,
   matchesKeywordTerm,
-  normalizeGuidelineRule
+  normalizeGuidelineRule,
+  normalizeGuidelineRuleType
 } from "./guidelineRules";
 
 type RunGuidelineRuleOptions = {
@@ -98,13 +99,22 @@ export async function runGuidelineRule({
   }
 
   const idempotencyKey = globalThis.crypto?.randomUUID?.() ?? `check-${Date.now()}`;
-  const response = await apiClient.startLLMReviewCheck(
-    {
-      document_ids: documentIds,
-      instructions: normalizedRule.instructions
-    },
-    { idempotencyKey }
-  );
+  const response =
+    normalizedRule.rule_type === "clause_presence"
+      ? await apiClient.startClausePresenceCheck(
+          {
+            document_ids: documentIds,
+            required_clause_text: normalizedRule.instructions
+          },
+          { idempotencyKey }
+        )
+      : await apiClient.startLLMReviewCheck(
+          {
+            document_ids: documentIds,
+            instructions: normalizedRule.instructions
+          },
+          { idempotencyKey }
+        );
 
   upsertStoredRun({
     check_id: response.check_id,
@@ -149,5 +159,12 @@ export function formatGuidelineRunStatusEmoji(status: "queued" | "running" | "co
 }
 
 export function formatGuidelineRuleType(ruleType: StoredGuidelineRule["rule_type"]) {
-  return ruleType === "keyword_match" ? "Strict keyword check" : "LLM contract review";
+  const normalizedType = normalizeGuidelineRuleType(ruleType);
+  if (normalizedType === "keyword_match") {
+    return "Strict keyword check";
+  }
+  if (normalizedType === "clause_presence") {
+    return "Lexical clause check";
+  }
+  return "Gemini contract review";
 }

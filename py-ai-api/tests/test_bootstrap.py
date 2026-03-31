@@ -195,46 +195,6 @@ def test_clause_analysis_returns_completed_job_with_result(monkeypatch) -> None:
     assert payload["result"]["items"][0]["outcome"] == "match"
 
 
-def test_company_name_analysis_returns_completed_job_with_result(monkeypatch) -> None:
-    client = _client_with_env(monkeypatch, token="shared-secret")
-
-    class _FakeAnalysisPipeline:
-        def analyze_company_name(self, **kwargs) -> AnalysisResult:
-            assert kwargs["old_company_name"] == "Old Corp"
-            assert kwargs["new_company_name"] == "New Corp"
-            return AnalysisResult(
-                items=[
-                    AnalysisResultItem(
-                        document_id="doc-1",
-                        outcome="review",
-                        confidence=0.6,
-                        summary="Both names found.",
-                    )
-                ]
-            )
-
-    app.dependency_overrides[get_analysis_pipeline] = lambda: _FakeAnalysisPipeline()
-    try:
-        response = client.post(
-            "/internal/v1/analyze/company-name",
-            headers={"X-Internal-Service-Token": "shared-secret"},
-            json={
-                "job_id": "f463315e-bcc6-4477-926f-83020b3a4bae",
-                "check_id": "06f16fc3-0d05-4550-9f20-bf757b13f0af",
-                "document_ids": ["doc-1"],
-                "old_company_name": "Old Corp",
-                "new_company_name": "New Corp",
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(get_analysis_pipeline, None)
-
-    assert response.status_code == 202
-    payload = response.json()
-    assert payload["job_type"] == "analyze_company_name"
-    assert payload["result"]["items"][0]["outcome"] == "review"
-
-
 def test_llm_review_analysis_returns_completed_job_with_result(monkeypatch) -> None:
     client = _client_with_env(monkeypatch, token="shared-secret")
 
