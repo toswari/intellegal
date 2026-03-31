@@ -26,6 +26,36 @@ type AnalyzeDocument struct {
 	Text       string `json:"text,omitempty"`
 }
 
+type ContractChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ContractChatDocument struct {
+	DocumentID string `json:"document_id"`
+	Filename   string `json:"filename,omitempty"`
+	Text       string `json:"text,omitempty"`
+}
+
+type ContractChatCitation struct {
+	DocumentID  string `json:"document_id"`
+	SnippetText string `json:"snippet_text"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type ContractChatRequest struct {
+	JobID      string                 `json:"job_id"`
+	RequestID  string                 `json:"request_id,omitempty"`
+	ContractID string                 `json:"contract_id"`
+	Messages   []ContractChatMessage  `json:"messages"`
+	Documents  []ContractChatDocument `json:"documents,omitempty"`
+}
+
+type ContractChatResult struct {
+	Answer    string                 `json:"answer"`
+	Citations []ContractChatCitation `json:"citations,omitempty"`
+}
+
 type AnalysisEvidenceSnippet struct {
 	SnippetText string  `json:"snippet_text"`
 	PageNumber  int     `json:"page_number"`
@@ -181,6 +211,14 @@ func (c *Client) AnalyzeLLMReview(ctx context.Context, req AnalyzeLLMReviewReque
 	var out acceptedJobResponse[AnalysisResult]
 	if err := c.postJSONWithResponse(ctx, "/internal/v1/analyze/llm-review", req, &out); err != nil {
 		return AnalysisResult{}, err
+	}
+	return out.Result, nil
+}
+
+func (c *Client) ContractChat(ctx context.Context, req ContractChatRequest) (ContractChatResult, error) {
+	var out acceptedJobResponse[ContractChatResult]
+	if err := c.postJSONWithResponse(ctx, "/internal/v1/chat/contract", req, &out); err != nil {
+		return ContractChatResult{}, err
 	}
 	return out.Result, nil
 }

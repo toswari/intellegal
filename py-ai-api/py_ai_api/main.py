@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .auth import require_internal_service_auth
-from .analysis import AnalysisPipeline, AnalysisResult
+from .analysis import AnalysisPipeline, AnalysisResult, ContractChatResult
 from .config import Settings, get_settings
 from .db import ChunkSearchStore, check_connection
 from .extraction import ExtractionError, ExtractionPipeline, ExtractionResult
@@ -113,6 +113,25 @@ class SearchSectionsJobRequest(BaseModel):
     document_ids: list[str] | None = None
     limit: int = 10
     strategy: Literal["semantic", "strict"] = "semantic"
+
+
+class ContractChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ContractChatDocument(BaseModel):
+    document_id: str
+    filename: str | None = None
+    text: str | None = None
+
+
+class ContractChatJobRequest(BaseModel):
+    job_id: str
+    request_id: str | None = None
+    contract_id: str
+    messages: list[ContractChatMessage]
+    documents: list[ContractChatDocument] | None = None
 
 
 @lru_cache
@@ -328,6 +347,41 @@ def start_llm_review_analysis_job(
         job_id=payload.job_id,
         status="completed",
         job_type="analyze_llm_review",
+        result=result.model_dump(),
+    )
+
+
+@app.post(
+    "/internal/v1/chat/contract",
+    status_code=202,
+    response_model=AcceptedJobResponse,
+    dependencies=[Depends(require_internal_service_auth)],
+)
+def start_contract_chat_job(
+    payload: ContractChatJobRequest,
+    pipeline: Annotated[AnalysisPipeline, Depends(get_analysis_pipeline)],
+) -> AcceptedJobResponse | JSONResponse:
+    try:
+        result: ContractChatResult = pipeline.answer_contract_question(
+            contract_id=payload.contract_id,
+            messages=[message.model_dump() for message in payload.messages],
+            documents=[document.model_dump() for document in (payload.documents or [])],
+        )
+    except (GeminiError, RuntimeError) as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "contract_chat_unavailable",
+                    "message": str(exc),
+                    "retriable": True,
+                }
+            },
+        )
+    return AcceptedJobResponse(
+        job_id=payload.job_id,
+        status="completed",
+        job_type="contract_chat",
         result=result.model_dump(),
     )
 

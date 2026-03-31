@@ -156,6 +156,27 @@ export type ContractSearchResponse = {
   items: ContractSearchResultItem[];
 };
 
+export type ContractChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ContractChatRequest = {
+  messages: ContractChatMessage[];
+};
+
+export type ContractChatCitation = {
+  document_id: string;
+  filename?: string;
+  snippet_text: string;
+  reason?: string;
+};
+
+export type ContractChatResponse = {
+  answer: string;
+  citations: ContractChatCitation[];
+};
+
 export type RequestOptions = {
   idempotencyKey?: string;
   signal?: AbortSignal;
@@ -323,6 +344,15 @@ export class ApiClient {
 
   searchContractSections(body: ContractSearchRequest, options?: RequestOptions) {
     return this.request<ContractSearchResponse>("POST", "/api/v1/contracts/search", body, options);
+  }
+
+  chatWithContract(contractId: string, body: ContractChatRequest, options?: RequestOptions) {
+    return this.request<ContractChatResponse>(
+      "POST",
+      `/api/v1/contracts/${encodeURIComponent(contractId)}/chat`,
+      body,
+      options
+    );
   }
 
   private async request<T>(

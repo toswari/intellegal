@@ -18,6 +18,19 @@ class GeminiReviewResult:
     evidence_snippets: list[str]
 
 
+@dataclass(frozen=True)
+class GeminiContractChatCitation:
+    document_id: str
+    snippet_text: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class GeminiContractChatResult:
+    answer: str
+    citations: list[GeminiContractChatCitation]
+
+
 class GeminiReviewer:
     def __init__(
         self,
@@ -100,6 +113,82 @@ class GeminiReviewer:
             evidence_snippets=evidence_snippets,
         )
 
+    def answer_contract_question(
+        self,
+        *,
+        contract_id: str,
+        messages: list[dict[str, str]],
+        documents: list[dict[str, str]],
+    ) -> GeminiContractChatResult:
+        if not self._api_key:
+            raise GeminiError("GEMINI_API_KEY is not configured")
+        if not self._model:
+            raise GeminiError("GEMINI_MODEL is not configured")
+
+        prompt = _build_contract_chat_prompt(
+            contract_id=contract_id,
+            messages=messages,
+            documents=documents,
+        )
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.15,
+                "responseMimeType": "application/json",
+            },
+        }
+
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{parse.quote(self._model, safe='')}:generateContent?key={parse.quote(self._api_key, safe='')}"
+        )
+        req = request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            raw = self._requester(req, self._timeout_seconds)
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise GeminiError(f"Gemini request failed with HTTP {exc.code}: {detail}") from exc
+        except error.URLError as exc:
+            raise GeminiError(f"Gemini request failed: {exc.reason}") from exc
+
+        response_payload = json.loads(raw.decode("utf-8"))
+        text = _extract_text(response_payload)
+        if not text:
+            raise GeminiError("Gemini response did not include contract chat content")
+
+        parsed = json.loads(text)
+        answer = str(parsed.get("answer") or "").strip()
+        citations: list[GeminiContractChatCitation] = []
+        for item in parsed.get("citations") or []:
+            document_id = str((item or {}).get("document_id") or "").strip()
+            snippet_text = str((item or {}).get("snippet_text") or "").strip()
+            reason = str((item or {}).get("reason") or "").strip()
+            if not document_id or not snippet_text:
+                continue
+            citations.append(
+                GeminiContractChatCitation(
+                    document_id=document_id,
+                    snippet_text=snippet_text,
+                    reason=reason,
+                )
+            )
+
+        return GeminiContractChatResult(
+            answer=answer or "I could not answer confidently from the contract text.",
+            citations=citations[:4],
+        )
+
 
 def _default_requester(req: request.Request, timeout_seconds: float) -> bytes:
     with request.urlopen(req, timeout=timeout_seconds) as response:
@@ -144,4 +233,44 @@ def _build_review_prompt(*, instructions: str, filename: str, document_text: str
         f"Filename: {filename or 'unknown'}\n"
         f"Guideline instructions:\n{instructions.strip()}\n\n"
         f"Contract text:\n{document_text.strip()}"
+    )
+
+
+def _build_contract_chat_prompt(
+    *,
+    contract_id: str,
+    messages: list[dict[str, str]],
+    documents: list[dict[str, str]],
+) -> str:
+    rendered_messages = "\n".join(
+        f"{str(message.get('role') or 'user').strip().upper()}: {str(message.get('content') or '').strip()}"
+        for message in messages
+        if str(message.get("content") or "").strip()
+    )
+    rendered_documents = "\n\n".join(
+        (
+            f"DOCUMENT_ID: {str(document.get('document_id') or '').strip()}\n"
+            f"FILENAME: {str(document.get('filename') or '').strip() or 'unknown'}\n"
+            "TEXT:\n"
+            f"{str(document.get('text') or '').strip()}"
+        )
+        for document in documents
+        if str(document.get("document_id") or "").strip() and str(document.get("text") or "").strip()
+    )
+    return (
+        "You are a contract Q&A assistant.\n"
+        "Answer the user's latest question using only the provided contract text and prior chat context.\n"
+        "Return only valid JSON with this exact shape:\n"
+        '{"answer":"...","citations":[{"document_id":"...","snippet_text":"...","reason":"..."}]}\n'
+        "Rules:\n"
+        "- answer should be concise, direct, and legally cautious.\n"
+        "- If the text is ambiguous or incomplete, say that clearly in answer.\n"
+        "- citations may contain up to 4 items.\n"
+        "- Every citation.document_id must exactly match one of the provided document IDs.\n"
+        "- Every citation.snippet_text must be an exact continuous quote copied from the provided text.\n"
+        "- Keep citation snippets short but sufficient for highlighting.\n"
+        "- Do not invent clause numbers, page numbers, or facts not present in the documents.\n\n"
+        f"CONTRACT_ID: {contract_id.strip() or 'unknown'}\n\n"
+        f"CHAT HISTORY:\n{rendered_messages}\n\n"
+        f"CONTRACT DOCUMENTS:\n{rendered_documents}"
     )

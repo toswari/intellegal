@@ -45,6 +45,10 @@ func (s *searchCapturingAIClient) AnalyzeLLMReview(context.Context, ai.AnalyzeLL
 	return ai.AnalysisResult{}, nil
 }
 
+func (s *searchCapturingAIClient) ContractChat(context.Context, ai.ContractChatRequest) (ai.ContractChatResult, error) {
+	return ai.ContractChatResult{}, nil
+}
+
 func (s *searchCapturingAIClient) Extract(context.Context, ai.ExtractRequest) (ai.ExtractResult, error) {
 	return ai.ExtractResult{}, nil
 }

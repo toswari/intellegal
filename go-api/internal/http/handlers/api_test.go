@@ -66,6 +66,22 @@ func (f *fakeAIClient) AnalyzeLLMReview(_ context.Context, req ai.AnalyzeLLMRevi
 	return ai.AnalysisResult{Items: items}, nil
 }
 
+func (f *fakeAIClient) ContractChat(_ context.Context, _ ai.ContractChatRequest) (ai.ContractChatResult, error) {
+	if f.fail {
+		return ai.ContractChatResult{}, context.DeadlineExceeded
+	}
+	return ai.ContractChatResult{
+		Answer: "Chat answer placeholder.",
+		Citations: []ai.ContractChatCitation{
+			{
+				DocumentID:  "doc-1",
+				SnippetText: "sample text",
+				Reason:      "Supports the answer.",
+			},
+		},
+	}, nil
+}
+
 func (f *fakeAIClient) Extract(_ context.Context, req ai.ExtractRequest) (ai.ExtractResult, error) {
 	if f.fail {
 		return ai.ExtractResult{}, context.DeadlineExceeded

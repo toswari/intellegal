@@ -42,6 +42,7 @@ func New(
 			r.Delete("/", api.DeleteContract)
 			r.Post("/files", api.AddContractFile)
 			r.Patch("/files/order", api.ReorderContractFiles)
+			r.Post("/chat", api.ChatContract)
 		})
 	})
 

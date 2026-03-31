@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -13,12 +17,14 @@ type capturingAIClient struct {
 	clauseReq  *ai.AnalyzeClauseRequest
 	companyReq *ai.AnalyzeCompanyNameRequest
 	llmReq     *ai.AnalyzeLLMReviewRequest
+	chatReq    *ai.ContractChatRequest
 	extractReq *ai.ExtractRequest
 	indexReq   *ai.IndexRequest
 	searchReq  *ai.SearchSectionsRequest
 	clauseErr  error
 	companyErr error
 	llmErr     error
+	chatErr    error
 	extractErr error
 	indexErr   error
 	searchErr  error
@@ -86,6 +92,26 @@ func (c *capturingAIClient) AnalyzeLLMReview(_ context.Context, req ai.AnalyzeLL
 		})
 	}
 	return ai.AnalysisResult{Items: items}, nil
+}
+
+func (c *capturingAIClient) ContractChat(_ context.Context, req ai.ContractChatRequest) (ai.ContractChatResult, error) {
+	copyReq := req
+	copyReq.Messages = append([]ai.ContractChatMessage(nil), req.Messages...)
+	copyReq.Documents = append([]ai.ContractChatDocument(nil), req.Documents...)
+	c.chatReq = &copyReq
+	if c.chatErr != nil {
+		return ai.ContractChatResult{}, c.chatErr
+	}
+	return ai.ContractChatResult{
+		Answer: "Termination is allowed with written notice.",
+		Citations: []ai.ContractChatCitation{
+			{
+				DocumentID:  req.Documents[0].DocumentID,
+				SnippetText: "Either party may terminate on thirty days written notice.",
+				Reason:      "This clause states the notice requirement.",
+			},
+		},
+	}, nil
 }
 
 func (c *capturingAIClient) Extract(_ context.Context, req ai.ExtractRequest) (ai.ExtractResult, error) {
@@ -215,6 +241,76 @@ func TestRunCompanyNameCheckMarksFailedWhenAIClientReturnsError(t *testing.T) {
 	}
 	if run.FailureReason != "upstream timeout" {
 		t.Fatalf("expected failure reason to be propagated, got %q", run.FailureReason)
+	}
+}
+
+func TestChatContractBuildsAIRequestFromContractFiles(t *testing.T) {
+	aiClient := &capturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+
+	contractID := "00000000-0000-4000-8000-000000000031"
+	documentID := "00000000-0000-4000-8000-000000000032"
+	now := time.Now().UTC()
+	api.contracts[contractID] = contract{
+		ID:        contractID,
+		Name:      "Alpha",
+		FileIDs:   []string{documentID},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	api.documents[documentID] = document{
+		ID:            documentID,
+		ContractID:    contractID,
+		Filename:      "alpha.pdf",
+		ExtractedText: "Either party may terminate on thirty days written notice.",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	body, err := json.Marshal(contractChatRequest{
+		Messages: []contractChatMessageRequest{
+			{Role: "user", Content: "Can either party terminate early?"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/contracts/"+contractID+"/chat", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("contract_id", contractID)
+	rec := httptest.NewRecorder()
+
+	api.ChatContract(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if aiClient.chatReq == nil {
+		t.Fatal("expected ContractChat to be called")
+	}
+	if aiClient.chatReq.ContractID != contractID {
+		t.Fatalf("expected contract id %q, got %q", contractID, aiClient.chatReq.ContractID)
+	}
+	if len(aiClient.chatReq.Documents) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(aiClient.chatReq.Documents))
+	}
+	if aiClient.chatReq.Documents[0].Text != "Either party may terminate on thirty days written notice." {
+		t.Fatalf("unexpected document text: %q", aiClient.chatReq.Documents[0].Text)
+	}
+
+	var resp contractChatResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Answer == "" {
+		t.Fatal("expected answer")
+	}
+	if len(resp.Citations) != 1 {
+		t.Fatalf("expected 1 citation, got %d", len(resp.Citations))
+	}
+	if resp.Citations[0].Filename != "alpha.pdf" {
+		t.Fatalf("expected filename alpha.pdf, got %q", resp.Citations[0].Filename)
 	}
 }
 

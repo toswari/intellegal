@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .extraction import _clamp_confidence
-from .gemini import GeminiReviewResult, GeminiReviewer
+from .gemini import GeminiContractChatResult, GeminiReviewResult, GeminiReviewer
 from .qdrant import QdrantService
 
 
@@ -28,6 +28,17 @@ class AnalysisResultItem(BaseModel):
 class AnalysisResult(BaseModel):
     items: list[AnalysisResultItem]
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContractChatCitation(BaseModel):
+    document_id: str
+    snippet_text: str
+    reason: str | None = None
+
+
+class ContractChatResult(BaseModel):
+    answer: str
+    citations: list[ContractChatCitation] = Field(default_factory=list)
 
 
 class AnalysisPipeline:
@@ -242,6 +253,53 @@ class AnalysisPipeline:
             )
 
         return AnalysisResult(items=items, diagnostics={"document_count": len(prepared_documents), "strategy": "gemini_llm_review"})
+
+    def answer_contract_question(
+        self,
+        *,
+        contract_id: str,
+        messages: list[dict[str, str]] | None,
+        documents: list[dict[str, str]] | None,
+    ) -> ContractChatResult:
+        if self._gemini_reviewer is None:
+            raise RuntimeError("Gemini reviewer is not configured")
+
+        prepared_messages = [
+            {
+                "role": str(message.get("role") or "").strip().lower(),
+                "content": str(message.get("content") or "").strip(),
+            }
+            for message in (messages or [])
+            if str(message.get("content") or "").strip()
+        ]
+        prepared_documents = [
+            {
+                "document_id": str(document.get("document_id") or "").strip(),
+                "filename": str(document.get("filename") or "").strip(),
+                "text": str(document.get("text") or "").strip(),
+            }
+            for document in (documents or [])
+            if str(document.get("document_id") or "").strip() and str(document.get("text") or "").strip()
+        ]
+        if not prepared_messages:
+            return ContractChatResult(answer="I need a question before I can review the contract.", citations=[])
+        if not prepared_documents:
+            return ContractChatResult(answer="No extracted contract text is available yet.", citations=[])
+
+        response: GeminiContractChatResult = self._gemini_reviewer.answer_contract_question(
+            contract_id=contract_id,
+            messages=prepared_messages,
+            documents=prepared_documents,
+        )
+        citations = [
+            ContractChatCitation(
+                document_id=citation.document_id,
+                snippet_text=citation.snippet_text,
+                reason=citation.reason or None,
+            )
+            for citation in response.citations
+        ]
+        return ContractChatResult(answer=response.answer, citations=citations)
 
 
 def _build_evidence(chunk: dict[str, Any] | None, score: float) -> list[AnalysisEvidenceSnippet]:

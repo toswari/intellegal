@@ -48,6 +48,7 @@ type aiClient interface {
 	AnalyzeClause(ctx context.Context, req ai.AnalyzeClauseRequest) (ai.AnalysisResult, error)
 	AnalyzeCompanyName(ctx context.Context, req ai.AnalyzeCompanyNameRequest) (ai.AnalysisResult, error)
 	AnalyzeLLMReview(ctx context.Context, req ai.AnalyzeLLMReviewRequest) (ai.AnalysisResult, error)
+	ContractChat(ctx context.Context, req ai.ContractChatRequest) (ai.ContractChatResult, error)
 	Extract(ctx context.Context, req ai.ExtractRequest) (ai.ExtractResult, error)
 	Index(ctx context.Context, req ai.IndexRequest) (ai.IndexResult, error)
 	SearchSections(ctx context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error)
@@ -76,6 +77,10 @@ func (noopAIClient) AnalyzeCompanyName(context.Context, ai.AnalyzeCompanyNameReq
 
 func (noopAIClient) AnalyzeLLMReview(context.Context, ai.AnalyzeLLMReviewRequest) (ai.AnalysisResult, error) {
 	return ai.AnalysisResult{}, nil
+}
+
+func (noopAIClient) ContractChat(context.Context, ai.ContractChatRequest) (ai.ContractChatResult, error) {
+	return ai.ContractChatResult{}, nil
 }
 
 func (noopAIClient) Extract(_ context.Context, req ai.ExtractRequest) (ai.ExtractResult, error) {
@@ -341,6 +346,27 @@ type contractSearchResultItem struct {
 
 type contractSearchResponse struct {
 	Items []contractSearchResultItem `json:"items"`
+}
+
+type contractChatMessageRequest struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type contractChatRequest struct {
+	Messages []contractChatMessageRequest `json:"messages"`
+}
+
+type contractChatCitationResponse struct {
+	DocumentID  string `json:"document_id"`
+	Filename    string `json:"filename,omitempty"`
+	SnippetText string `json:"snippet_text"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type contractChatResponse struct {
+	Answer    string                         `json:"answer"`
+	Citations []contractChatCitationResponse `json:"citations,omitempty"`
 }
 
 type errorEnvelope struct {

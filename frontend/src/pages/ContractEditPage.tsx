@@ -1,7 +1,18 @@
-import { type CSSProperties, type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type DragEvent,
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   apiClient,
+  type ContractChatCitation,
+  type ContractChatMessage,
   type ContractResponse,
   type DocumentResponse,
   type DocumentStatus,
@@ -32,6 +43,109 @@ type ContractTextSettings = {
 };
 
 type ContractDisplayMode = "text" | "original";
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations?: ContractChatCitation[];
+};
+
+type LocatedCitation = ContractChatCitation & {
+  id: string;
+  colorIndex: number;
+  start: number;
+  end: number;
+};
+
+function buildChatPayload(messages: ChatMessage[]): ContractChatMessage[] {
+  return messages.map((message) => ({
+    role: message.role,
+    content: message.content
+  }));
+}
+
+function findCitationRange(text: string, snippetText: string): { start: number; end: number } | null {
+  const normalizedText = text.toLowerCase();
+  const normalizedSnippet = snippetText.trim().toLowerCase();
+  if (!normalizedSnippet) {
+    return null;
+  }
+  const start = normalizedText.indexOf(normalizedSnippet);
+  if (start < 0) {
+    return null;
+  }
+  return { start, end: start + normalizedSnippet.length };
+}
+
+function locateCitations(text: string, citations: LocatedCitation[]): LocatedCitation[] {
+  const matches: LocatedCitation[] = [];
+  for (const citation of citations) {
+    const range = findCitationRange(text, citation.snippet_text);
+    if (!range) {
+      continue;
+    }
+    matches.push({ ...citation, start: range.start, end: range.end });
+  }
+  return matches.sort((left, right) => left.start - right.start);
+}
+
+function renderHighlightedContractText(
+  text: string,
+  citations: LocatedCitation[],
+  activeCitationId: string | null
+): ReactNode[] {
+  if (citations.length === 0) {
+    return [text];
+  }
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let segmentIndex = 0;
+  for (const citation of citations) {
+    if (citation.start < cursor) {
+      continue;
+    }
+    if (citation.start > cursor) {
+      nodes.push(text.slice(cursor, citation.start));
+    }
+    const content = text.slice(citation.start, citation.end);
+    nodes.push(
+      <mark
+        key={`${citation.id}-${segmentIndex}`}
+        id={`contract-chat-highlight-${citation.id}`}
+        className={`contract-chat-highlight contract-chat-highlight-${citation.colorIndex}${
+          activeCitationId === citation.id ? " is-active" : ""
+        }`}
+        title={citation.reason || "Referenced by contract assistant"}
+      >
+        {content}
+      </mark>
+    );
+    cursor = citation.end;
+    segmentIndex += 1;
+  }
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return nodes;
+}
+
+function RobotIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="5" y="7" width="14" height="11" rx="3" />
+      <path d="M12 3v4" />
+      <path d="M8 18v2" />
+      <path d="M16 18v2" />
+      <path d="M3 11h2" />
+      <path d="M19 11h2" />
+      <circle cx="9.5" cy="12" r="1.1" />
+      <circle cx="14.5" cy="12" r="1.1" />
+      <path d="M9 15h6" />
+    </svg>
+  );
+}
 
 function readContractTextSettings(): ContractTextSettings {
   return readLocalJson<ContractTextSettings>(CONTRACT_TEXT_SETTINGS_KEY, {
@@ -88,7 +202,15 @@ export function ContractEditPage() {
   const [displayMode, setDisplayMode] = useState<ContractDisplayMode>("text");
   const [textFontSize, setTextFontSize] = useState(() => readContractTextSettings().fontSize);
   const [textLineHeight, setTextLineHeight] = useState(() => readContractTextSettings().lineHeight);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [activeCitations, setActiveCitations] = useState<ContractChatCitation[]>([]);
+  const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
   const creationNotice = searchParams.get("notice")?.trim() ?? "";
+  const chatBodyRef = useRef<HTMLDivElement | null>(null);
 
   const contractTextStyle = useMemo(
     () =>
@@ -133,6 +255,24 @@ export function ContractEditPage() {
       lineHeight: textLineHeight
     });
   }, [textFontSize, textLineHeight]);
+
+  useEffect(() => {
+    if (!chatBodyRef.current) {
+      return;
+    }
+    chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+  }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    if (!activeCitationId) {
+      return;
+    }
+    const highlight = document.getElementById(`contract-chat-highlight-${activeCitationId}`);
+    if (!highlight || typeof highlight.scrollIntoView !== "function") {
+      return;
+    }
+    highlight.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [activeCitationId, activeCitations, documentTexts, displayMode]);
 
   const contractDocumentIds = useMemo(() => files.map((file) => file.id), [files]);
 
@@ -200,6 +340,26 @@ export function ContractEditPage() {
       window.clearInterval(timer);
     };
   }, [statusSummary.processing, statusSummary.ingested, contractId]);
+
+  const locatedCitationsByDocumentId = useMemo(() => {
+    const byDocument: Record<string, LocatedCitation[]> = {};
+    activeCitations.forEach((citation, index) => {
+      const documentText = documentTexts[citation.document_id]?.text ?? "";
+      const match = findCitationRange(documentText, citation.snippet_text);
+      if (!match) {
+        return;
+      }
+      const located: LocatedCitation = {
+        ...citation,
+        id: `${citation.document_id}-${index}`,
+        colorIndex: index % 4,
+        start: match.start,
+        end: match.end
+      };
+      byDocument[citation.document_id] = [...(byDocument[citation.document_id] ?? []), located];
+    });
+    return byDocument;
+  }, [activeCitations, documentTexts]);
 
   useEffect(() => {
     const relevantRuns = listStoredRuns().filter((run) =>
@@ -433,6 +593,53 @@ export function ContractEditPage() {
       setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const submitContractChat = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!contractId || chatLoading) {
+      return;
+    }
+
+    const question = chatInput.trim();
+    if (!question) {
+      return;
+    }
+
+    const nextMessages: ChatMessage[] = [
+      ...chatMessages,
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: question
+      }
+    ];
+
+    setChatMessages(nextMessages);
+    setChatInput("");
+    setChatLoading(true);
+    setChatError(null);
+
+    try {
+      const response = await apiClient.chatWithContract(contractId, {
+        messages: buildChatPayload(nextMessages)
+      });
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: response.answer,
+        citations: response.citations
+      };
+      setChatMessages([...nextMessages, assistantMessage]);
+      setActiveCitations(response.citations);
+      setDisplayMode("text");
+      const firstCitation = response.citations[0];
+      setActiveCitationId(firstCitation ? `${firstCitation.document_id}-0` : null);
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Failed to ask the contract assistant.");
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -700,6 +907,7 @@ export function ContractEditPage() {
               {files.length === 0 ? <p className="muted">No files yet, so there is no text to show.</p> : null}
               {files.map((file, index) => {
                 const entry = documentTexts[file.id];
+                const locatedCitations = entry?.has_text ? locateCitations(entry.text, locatedCitationsByDocumentId[file.id] ?? []) : [];
                 return (
                   <section key={file.id} className="word-document-section">
                     <div className="word-document-label">
@@ -707,7 +915,27 @@ export function ContractEditPage() {
                     </div>
                     <article className="word-document-page">
                       {entry?.has_text ? (
-                        <p className="word-document-text">{entry.text}</p>
+                        <>
+                          {locatedCitations.length > 0 ? (
+                            <div className="contract-chat-citation-strip" aria-label={`Highlights for ${file.filename}`}>
+                              {locatedCitations.map((citation, citationIndex) => (
+                                <button
+                                  key={citation.id}
+                                  type="button"
+                                  className={`contract-chat-citation-pill contract-chat-citation-pill-${citation.colorIndex}${
+                                    activeCitationId === citation.id ? " is-active" : ""
+                                  }`}
+                                  onClick={() => setActiveCitationId(citation.id)}
+                                >
+                                  {citationIndex + 1}. {citation.reason || "Referenced clause"}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p className="word-document-text">
+                            {renderHighlightedContractText(entry.text, locatedCitations, activeCitationId)}
+                          </p>
+                        </>
                       ) : (
                         <p className="muted">No extracted text available for this file yet.</p>
                       )}
@@ -747,6 +975,96 @@ export function ContractEditPage() {
           ) : null}
         </section>
       </section>
+
+      <div className="contract-chat-dock">
+        {chatOpen ? (
+          <section className="contract-chat-panel" aria-label="Contract assistant">
+            <header className="contract-chat-header">
+              <div>
+                <h3>Contract Assistant</h3>
+                <p className="muted">Ask questions about this contract and jump to supporting text.</p>
+              </div>
+              <button type="button" className="secondary" onClick={() => setChatOpen(false)} aria-label="Close contract assistant">
+                Close
+              </button>
+            </header>
+            <div className="contract-chat-body" ref={chatBodyRef}>
+              {chatMessages.length === 0 ? (
+                <div className="contract-chat-message contract-chat-message-assistant">
+                  Ask about clauses, obligations, dates, termination rights, or missing language.
+                </div>
+              ) : null}
+              {chatMessages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`contract-chat-message ${
+                    message.role === "user" ? "contract-chat-message-user" : "contract-chat-message-assistant"
+                  }`}
+                >
+                  <p>{message.content}</p>
+                  {message.role === "assistant" && message.citations && message.citations.length > 0 ? (
+                    <div className="contract-chat-citations">
+                      {message.citations.map((citation, index) => {
+                        const citationId = `${citation.document_id}-${index}`;
+                        return (
+                          <button
+                            key={`${message.id}-${citationId}`}
+                            type="button"
+                            className={`contract-chat-citation-pill contract-chat-citation-pill-${index % 4}${
+                              activeCitationId === citationId ? " is-active" : ""
+                            }`}
+                            onClick={() => {
+                              setDisplayMode("text");
+                              setActiveCitations(message.citations ?? []);
+                              setActiveCitationId(citationId);
+                            }}
+                          >
+                            {citation.filename || "Contract text"}: {citation.reason || "Show support"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              {chatLoading ? (
+                <div className="contract-chat-message contract-chat-message-assistant">
+                  Thinking through the contract text...
+                </div>
+              ) : null}
+            </div>
+            <form className="contract-chat-form" onSubmit={submitContractChat}>
+              <label className="sr-only" htmlFor="contract-chat-input">
+                Ask a question about this contract
+              </label>
+              <textarea
+                id="contract-chat-input"
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder="What does this contract say about termination, payment, liability..."
+                rows={3}
+              />
+              <div className="contract-chat-actions">
+                {chatError ? <p className="error-text">{chatError}</p> : <span className="muted">Responses cite and highlight matching text.</span>}
+                <button type="submit" disabled={chatLoading || chatInput.trim().length === 0}>
+                  {chatLoading ? "Asking..." : "Ask"}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+        <button
+          type="button"
+          className="contract-chat-toggle"
+          aria-label="Open contract assistant"
+          onClick={() => setChatOpen((value) => !value)}
+        >
+          <span className="contract-chat-toggle-icon">
+            <RobotIcon />
+          </span>
+          <span>Ask AI</span>
+        </button>
+      </div>
     </section>
   );
 }

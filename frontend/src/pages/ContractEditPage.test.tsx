@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContractEditPage } from "./ContractEditPage";
@@ -12,7 +12,8 @@ const apiMocks = vi.hoisted(() => ({
   updateContract: vi.fn(),
   reorderContractFiles: vi.fn(),
   addContractFile: vi.fn(),
-  getDocumentContentUrl: vi.fn()
+  getDocumentContentUrl: vi.fn(),
+  chatWithContract: vi.fn()
 }));
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -29,7 +30,8 @@ vi.mock("../api/client", async (importOriginal) => {
       updateContract: apiMocks.updateContract,
       reorderContractFiles: apiMocks.reorderContractFiles,
       addContractFile: apiMocks.addContractFile,
-      getDocumentContentUrl: apiMocks.getDocumentContentUrl
+      getDocumentContentUrl: apiMocks.getDocumentContentUrl,
+      chatWithContract: apiMocks.chatWithContract
     }
   };
 });
@@ -119,5 +121,63 @@ describe("ContractEditPage", () => {
     });
 
     expect(JSON.parse(window.localStorage.getItem("ldi.pendingAutoGuidelineRuns") ?? "[]")).toEqual([]);
+  });
+
+  it("opens contract chat, asks a question, and highlights cited text", async () => {
+    apiMocks.getContract.mockResolvedValue({
+      id: "contract-1",
+      name: "Alpha",
+      file_count: 1,
+      files: [
+        {
+          id: "doc-1",
+          contract_id: "contract-1",
+          filename: "alpha.pdf",
+          mime_type: "application/pdf",
+          status: "indexed",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z"
+        }
+      ],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z"
+    });
+    apiMocks.getDocumentText.mockResolvedValue({
+      document_id: "doc-1",
+      filename: "alpha.pdf",
+      text: "Either party may terminate on thirty days written notice.",
+      has_text: true
+    });
+    apiMocks.getDocumentContentUrl.mockReturnValue("http://localhost/file.pdf");
+    apiMocks.chatWithContract.mockResolvedValue({
+      answer: "Yes, either party can terminate with thirty days notice.",
+      citations: [
+        {
+          document_id: "doc-1",
+          filename: "alpha.pdf",
+          snippet_text: "Either party may terminate on thirty days written notice.",
+          reason: "Termination clause"
+        }
+      ]
+    });
+
+    renderPage();
+
+    await screen.findByText("Either party may terminate on thirty days written notice.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open contract assistant" }));
+    fireEvent.change(screen.getByLabelText("Ask a question about this contract"), {
+      target: { value: "Can either party terminate?" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await screen.findByText("Yes, either party can terminate with thirty days notice.");
+    expect(apiMocks.chatWithContract).toHaveBeenCalledWith("contract-1", {
+      messages: [{ role: "user", content: "Can either party terminate?" }]
+    });
+    expect(screen.getByRole("button", { name: /alpha\.pdf: termination clause/i })).toBeVisible();
+    expect(screen.getByText("Either party may terminate on thirty days written notice.").closest("mark")).toHaveClass(
+      "contract-chat-highlight"
+    );
   });
 });
