@@ -46,6 +46,7 @@ This process is currently semi-manual, slow, and hard to scale.
 
 3. Contract Comparison and Evidence Review
 - Review where a clause/entity appears, with page-level evidence snippets.
+  Spec: [Contract Comparison](./docs/contract-comparison.md)
 
 4. Audit and Traceability
 - Inspect who ran a check, when, and what evidence supported the result.
@@ -62,10 +63,16 @@ This process is currently semi-manual, slow, and hard to scale.
 - OCR + text extraction pipeline
 - Clause-presence checks
 - Company-name checks
+- Contract comparison
 - Result confidence + evidence snippets
 - Check run history
 - External REST API copy storage + status
 - Basic audit logging
+
+### 📚 Feature Specs
+- [Document Ingestion](./docs/document-ingestion.md)
+- [Contract Comparison](./docs/contract-comparison.md)
+- [Clause-Presence Checks](./docs/clause-presence-checks.md)
 
 ### 🔭 Non-MVP (Phase 2)
 - GraphRAG for relationship-heavy multi-hop legal reasoning
