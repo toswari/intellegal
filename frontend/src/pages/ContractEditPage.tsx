@@ -991,13 +991,22 @@ export function ContractEditPage() {
         {chatOpen ? (
           <section className="contract-chat-panel" aria-label="Contract assistant">
             <header className="contract-chat-header">
-              <div>
+              <div className="contract-chat-title">
+                <span className="contract-chat-title-icon" aria-hidden="true">
+                  <RobotIcon />
+                </span>
                 <h3>Contract Assistant</h3>
-                <p className="muted">Ask questions about this contract and jump to supporting text.</p>
               </div>
-              <button type="button" className="secondary" onClick={() => setChatOpen(false)} aria-label="Close contract assistant">
-                Close
-              </button>
+              <div className="contract-chat-header-actions">
+                <button
+                  type="button"
+                  className="secondary contract-chat-close-button"
+                  onClick={() => setChatOpen(false)}
+                  aria-label="Close contract assistant"
+                >
+                  Close
+                </button>
+              </div>
             </header>
             <div className="contract-chat-body" ref={chatBodyRef}>
               {chatMessages.length === 0 ? (
@@ -1048,33 +1057,37 @@ export function ContractEditPage() {
               <label className="sr-only" htmlFor="contract-chat-input">
                 Ask a question about this contract
               </label>
-              <textarea
-                id="contract-chat-input"
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                placeholder="What does this contract say about termination, payment, liability..."
-                rows={3}
-              />
-              <div className="contract-chat-actions">
-                {chatError ? <p className="error-text">{chatError}</p> : <span className="muted">Responses cite and highlight matching text.</span>}
+              <div className="contract-chat-compose">
+                <textarea
+                  id="contract-chat-input"
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  placeholder="What does this contract say about termination, payment, liability..."
+                  rows={3}
+                />
                 <button type="submit" disabled={chatLoading || chatInput.trim().length === 0}>
                   {chatLoading ? "Asking..." : "Ask"}
                 </button>
               </div>
+              <div className="contract-chat-actions">
+                {chatError ? <p className="error-text">{chatError}</p> : null}
+              </div>
             </form>
           </section>
         ) : null}
-        <button
-          type="button"
-          className="contract-chat-toggle"
-          aria-label="Open contract assistant"
-          onClick={() => setChatOpen((value) => !value)}
-        >
-          <span className="contract-chat-toggle-icon">
-            <RobotIcon />
-          </span>
-          <span>Ask AI</span>
-        </button>
+        {!chatOpen ? (
+          <button
+            type="button"
+            className="contract-chat-toggle"
+            aria-label="Open contract assistant"
+            onClick={() => setChatOpen(true)}
+          >
+            <span className="contract-chat-toggle-icon">
+              <RobotIcon />
+            </span>
+            <span>Ask AI</span>
+          </button>
+        ) : null}
       </div>
     </section>
   );
