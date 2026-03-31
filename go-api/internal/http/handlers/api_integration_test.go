@@ -118,12 +118,14 @@ func (f *fakeAIClient) SearchSections(_ context.Context, _ ai.SearchSectionsRequ
 	}, nil
 }
 
-func TestDocumentAndCheckFlow(t *testing.T) {
+func TestDocumentAndCheckFlow_CreatesDocumentsAndReturnsCompletedResults(t *testing.T) {
+	// Arrange
 	log := logging.NewDiscard(logger.New(logger.LoggerConfig{}))
 	api := handlers.NewAPI(log, &fakeAIClient{}, nil, nil)
 	ts := httptest.NewServer(router.New(log, api, nil, []string{"http://localhost:3000"}))
 	defer ts.Close()
 
+	// Act
 	docResp := postJSON(t, ts.URL+"/api/v1/documents", map[string]any{
 		"filename":       "contract.pdf",
 		"mime_type":      "application/pdf",
@@ -134,6 +136,7 @@ func TestDocumentAndCheckFlow(t *testing.T) {
 		t.Fatalf("expected 201, got %d", docResp.StatusCode)
 	}
 
+	// Assert
 	var createdDoc map[string]any
 	decodeResponse(t, docResp, &createdDoc)
 	docID := createdDoc["id"].(string)

@@ -39,7 +39,8 @@ func (mockAIClient) SearchSections(_ context.Context, _ ai.SearchSectionsRequest
 	return ai.SearchSectionsResult{}, nil
 }
 
-func TestHealthEndpoint(t *testing.T) {
+func TestHealthEndpoint_ReturnsOKAndRequestID(t *testing.T) {
+	// Arrange
 	log := logging.NewDiscard(logger.New(logger.LoggerConfig{}))
 	api := handlers.NewAPI(log, mockAIClient{}, nil, nil)
 	handler := New(log, api, nil, []string{"http://localhost:3000"})
@@ -47,8 +48,10 @@ func TestHealthEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	w := httptest.NewRecorder()
 
+	// Act
 	handler.ServeHTTP(w, req)
 
+	// Assert
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -58,7 +61,8 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
-func TestReadinessEndpoint(t *testing.T) {
+func TestReadinessEndpoint_ReturnsOKWhenDependencyCheckSucceeds(t *testing.T) {
+	// Arrange
 	log := logging.NewDiscard(logger.New(logger.LoggerConfig{}))
 	api := handlers.NewAPI(log, mockAIClient{}, nil, nil)
 	handler := New(log, api, nil, []string{"http://localhost:3000"})
@@ -66,14 +70,17 @@ func TestReadinessEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/readiness", nil)
 	w := httptest.NewRecorder()
 
+	// Act
 	handler.ServeHTTP(w, req)
 
+	// Assert
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
 
-func TestReadinessEndpointUnavailable(t *testing.T) {
+func TestReadinessEndpoint_ReturnsServiceUnavailableWhenDependencyCheckFails(t *testing.T) {
+	// Arrange
 	log := logging.NewDiscard(logger.New(logger.LoggerConfig{}))
 	api := handlers.NewAPI(log, mockAIClient{}, nil, nil)
 	handler := New(
@@ -86,8 +93,10 @@ func TestReadinessEndpointUnavailable(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/readiness", nil)
 	w := httptest.NewRecorder()
 
+	// Act
 	handler.ServeHTTP(w, req)
 
+	// Assert
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", w.Code)
 	}

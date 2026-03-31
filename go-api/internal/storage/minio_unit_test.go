@@ -8,137 +8,220 @@ import (
 	"testing"
 )
 
-func TestNewMinIOAdapterRequiresFields(t *testing.T) {
-	testCases := []struct {
-		name string
-		cfg  MinIOConfig
-		want string
-	}{
-		{
-			name: "endpoint",
-			cfg: MinIOConfig{
-				AccessKey: "minioadmin",
-				SecretKey: "minioadmin",
-				Bucket:    "contracts",
-			},
-			want: "minio endpoint is empty",
-		},
-		{
-			name: "access key",
-			cfg: MinIOConfig{
-				Endpoint:  "localhost:9000",
-				SecretKey: "minioadmin",
-				Bucket:    "contracts",
-			},
-			want: "minio access key is empty",
-		},
-		{
-			name: "secret key",
-			cfg: MinIOConfig{
-				Endpoint:  "localhost:9000",
-				AccessKey: "minioadmin",
-				Bucket:    "contracts",
-			},
-			want: "minio secret key is empty",
-		},
-		{
-			name: "bucket",
-			cfg: MinIOConfig{
-				Endpoint:  "localhost:9000",
-				AccessKey: "minioadmin",
-				SecretKey: "minioadmin",
-			},
-			want: "minio bucket is empty",
-		},
+func TestNewMinIOAdapter_ReturnsErrorWhenEndpointIsMissing(t *testing.T) {
+	// Arrange
+	cfg := MinIOConfig{
+		AccessKey: "minioadmin",
+		SecretKey: "minioadmin",
+		Bucket:    "contracts",
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewMinIOAdapter(tc.cfg)
-			if err == nil {
-				t.Fatal("expected validation error")
-			}
-			if err.Error() != tc.want {
-				t.Fatalf("expected %q, got %q", tc.want, err.Error())
-			}
-		})
+	// Act
+	_, err := NewMinIOAdapter(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "minio endpoint is empty" {
+		t.Fatalf("expected %q, got %q", "minio endpoint is empty", err.Error())
 	}
 }
 
-func TestValidateStorageKey(t *testing.T) {
-	testCases := []struct {
-		name    string
-		key     string
-		wantErr string
-	}{
-		{name: "valid nested key", key: "documents/contract.pdf"},
-		{name: "trimmed key", key: "  documents/contract.pdf  "},
-		{name: "empty", key: " ", wantErr: "storage key is empty"},
-		{name: "absolute", key: "/documents/contract.pdf", wantErr: "absolute storage key is not allowed: \"/documents/contract.pdf\""},
-		{name: "parent root", key: "..", wantErr: "storage key escapes root: \"..\""},
-		{name: "parent nested", key: "../secret.txt", wantErr: "storage key escapes root: \"../secret.txt\""},
+func TestNewMinIOAdapter_ReturnsErrorWhenAccessKeyIsMissing(t *testing.T) {
+	// Arrange
+	cfg := MinIOConfig{
+		Endpoint:  "localhost:9000",
+		SecretKey: "minioadmin",
+		Bucket:    "contracts",
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateStorageKey(tc.key)
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatalf("expected no error, got %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("expected validation error")
-			}
-			if err.Error() != tc.wantErr {
-				t.Fatalf("expected %q, got %q", tc.wantErr, err.Error())
-			}
-		})
+	// Act
+	_, err := NewMinIOAdapter(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "minio access key is empty" {
+		t.Fatalf("expected %q, got %q", "minio access key is empty", err.Error())
 	}
 }
 
-func TestMinIOAdapterMethodsRejectInvalidKeys(t *testing.T) {
+func TestNewMinIOAdapter_ReturnsErrorWhenSecretKeyIsMissing(t *testing.T) {
+	// Arrange
+	cfg := MinIOConfig{
+		Endpoint:  "localhost:9000",
+		AccessKey: "minioadmin",
+		Bucket:    "contracts",
+	}
+
+	// Act
+	_, err := NewMinIOAdapter(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "minio secret key is empty" {
+		t.Fatalf("expected %q, got %q", "minio secret key is empty", err.Error())
+	}
+}
+
+func TestNewMinIOAdapter_ReturnsErrorWhenBucketIsMissing(t *testing.T) {
+	// Arrange
+	cfg := MinIOConfig{
+		Endpoint:  "localhost:9000",
+		AccessKey: "minioadmin",
+		SecretKey: "minioadmin",
+	}
+
+	// Act
+	_, err := NewMinIOAdapter(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "minio bucket is empty" {
+		t.Fatalf("expected %q, got %q", "minio bucket is empty", err.Error())
+	}
+}
+
+func TestValidateStorageKey_AllowsValidNestedKey(t *testing.T) {
+	// Arrange
+	key := "documents/contract.pdf"
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestValidateStorageKey_AllowsTrimmedKey(t *testing.T) {
+	// Arrange
+	key := "  documents/contract.pdf  "
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestValidateStorageKey_ReturnsErrorWhenKeyIsEmpty(t *testing.T) {
+	// Arrange
+	key := " "
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "storage key is empty" {
+		t.Fatalf("expected %q, got %q", "storage key is empty", err.Error())
+	}
+}
+
+func TestValidateStorageKey_ReturnsErrorWhenKeyIsAbsolute(t *testing.T) {
+	// Arrange
+	key := "/documents/contract.pdf"
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "absolute storage key is not allowed: \"/documents/contract.pdf\"" {
+		t.Fatalf("expected %q, got %q", "absolute storage key is not allowed: \"/documents/contract.pdf\"", err.Error())
+	}
+}
+
+func TestValidateStorageKey_ReturnsErrorWhenKeyEscapesRootDirectory(t *testing.T) {
+	// Arrange
+	key := ".."
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "storage key escapes root: \"..\"" {
+		t.Fatalf("expected %q, got %q", "storage key escapes root: \"..\"", err.Error())
+	}
+}
+
+func TestValidateStorageKey_ReturnsErrorWhenNestedKeyEscapesRootDirectory(t *testing.T) {
+	// Arrange
+	key := "../secret.txt"
+
+	// Act
+	err := validateStorageKey(key)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "storage key escapes root: \"../secret.txt\"" {
+		t.Fatalf("expected %q, got %q", "storage key escapes root: \"../secret.txt\"", err.Error())
+	}
+}
+
+func TestMinIOAdapterPut_ReturnsErrorWhenKeyEscapesRootDirectory(t *testing.T) {
+	// Arrange
 	adapter := &MinIOAdapter{bucket: "contracts"}
-	testCases := []struct {
-		name string
-		call func() error
-		want string
-	}{
-		{
-			name: "put",
-			call: func() error {
-				_, err := adapter.Put(context.Background(), "../secret.txt", strings.NewReader("data"))
-				return err
-			},
-			want: "storage key escapes root: \"../secret.txt\"",
-		},
-		{
-			name: "get",
-			call: func() error {
-				_, err := adapter.Get(context.Background(), "/secret.txt")
-				return err
-			},
-			want: "absolute storage key is not allowed: \"/secret.txt\"",
-		},
-		{
-			name: "delete",
-			call: func() error {
-				return adapter.Delete(context.Background(), " ")
-			},
-			want: "storage key is empty",
-		},
-	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.call()
-			if err == nil {
-				t.Fatal("expected validation error")
-			}
-			if err.Error() != tc.want {
-				t.Fatalf("expected %q, got %q", tc.want, err.Error())
-			}
-		})
+	// Act
+	_, err := adapter.Put(context.Background(), "../secret.txt", strings.NewReader("data"))
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "storage key escapes root: \"../secret.txt\"" {
+		t.Fatalf("expected %q, got %q", "storage key escapes root: \"../secret.txt\"", err.Error())
+	}
+}
+
+func TestMinIOAdapterGet_ReturnsErrorWhenKeyIsAbsolute(t *testing.T) {
+	// Arrange
+	adapter := &MinIOAdapter{bucket: "contracts"}
+
+	// Act
+	_, err := adapter.Get(context.Background(), "/secret.txt")
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "absolute storage key is not allowed: \"/secret.txt\"" {
+		t.Fatalf("expected %q, got %q", "absolute storage key is not allowed: \"/secret.txt\"", err.Error())
+	}
+}
+
+func TestMinIOAdapterDelete_ReturnsErrorWhenKeyIsEmpty(t *testing.T) {
+	// Arrange
+	adapter := &MinIOAdapter{bucket: "contracts"}
+
+	// Act
+	err := adapter.Delete(context.Background(), " ")
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if err.Error() != "storage key is empty" {
+		t.Fatalf("expected %q, got %q", "storage key is empty", err.Error())
 	}
 }

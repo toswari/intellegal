@@ -12,9 +12,10 @@ import (
 	"time"
 )
 
-func TestAnalyzeClausePostsExpectedRequest(t *testing.T) {
+func TestAnalyzeClause_PostsExpectedRequest(t *testing.T) {
 	t.Parallel()
 
+	// Arrange
 	var seenPath string
 	var seenAuth string
 	var seenInternalToken string
@@ -46,6 +47,8 @@ func TestAnalyzeClausePostsExpectedRequest(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "secret-token", time.Second)
+
+	// Act
 	result, err := client.AnalyzeClause(context.Background(), AnalyzeClauseRequest{
 		JobID:              "job-1",
 		RequestID:          "req-1",
@@ -58,6 +61,7 @@ func TestAnalyzeClausePostsExpectedRequest(t *testing.T) {
 		t.Fatalf("AnalyzeClause returned error: %v", err)
 	}
 
+	// Assert
 	if seenPath != "/internal/v1/analyze/clause" {
 		t.Fatalf("unexpected path: %q", seenPath)
 	}
@@ -75,9 +79,10 @@ func TestAnalyzeClausePostsExpectedRequest(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCompanyNameReturnsErrorOnNon2xx(t *testing.T) {
+func TestAnalyzeCompanyName_ReturnsErrorOnNon2xxResponse(t *testing.T) {
 	t.Parallel()
 
+	// Arrange
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internal/v1/analyze/company-name" {
 			t.Fatalf("unexpected path: %q", r.URL.Path)
@@ -87,6 +92,8 @@ func TestAnalyzeCompanyNameReturnsErrorOnNon2xx(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "", time.Second)
+
+	// Act
 	_, err := client.AnalyzeCompanyName(context.Background(), AnalyzeCompanyNameRequest{
 		JobID:          "job-2",
 		CheckID:        "check-2",
@@ -97,6 +104,8 @@ func TestAnalyzeCompanyNameReturnsErrorOnNon2xx(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-2xx response")
 	}
+
+	// Assert
 	if !strings.Contains(err.Error(), "unexpected status 503") {
 		t.Fatalf("expected status code in error, got: %v", err)
 	}
@@ -105,9 +114,10 @@ func TestAnalyzeCompanyNameReturnsErrorOnNon2xx(t *testing.T) {
 	}
 }
 
-func TestAnalyzeLLMReviewPostsExpectedRequest(t *testing.T) {
+func TestAnalyzeLLMReview_PostsExpectedRequest(t *testing.T) {
 	t.Parallel()
 
+	// Arrange
 	var seenPath string
 	var seenBody AnalyzeLLMReviewRequest
 
@@ -135,6 +145,8 @@ func TestAnalyzeLLMReviewPostsExpectedRequest(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "", time.Second)
+
+	// Act
 	result, err := client.AnalyzeLLMReview(context.Background(), AnalyzeLLMReviewRequest{
 		JobID:        "job-llm-1",
 		CheckID:      "check-llm-1",
@@ -148,6 +160,7 @@ func TestAnalyzeLLMReviewPostsExpectedRequest(t *testing.T) {
 		t.Fatalf("AnalyzeLLMReview returned error: %v", err)
 	}
 
+	// Assert
 	if seenPath != "/internal/v1/analyze/llm-review" {
 		t.Fatalf("unexpected path: %q", seenPath)
 	}

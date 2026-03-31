@@ -97,9 +97,11 @@ func (s *stubDocumentStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func TestCreateDocumentRejectsUnsupportedMIMEType(t *testing.T) {
+func TestCreateDocument_ReturnsBadRequestForUnsupportedMIMEType(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
 		"filename":       "contract.txt",
 		"mime_type":      "text/plain",
@@ -110,15 +112,18 @@ func TestCreateDocumentRejectsUnsupportedMIMEType(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.Code)
 	}
 
+	// Assert
 	body := decodeJSONBody(t, resp)
 	if body.Error.Code != "invalid_argument" {
 		t.Fatalf("expected invalid_argument error code, got %q", body.Error.Code)
 	}
 }
 
-func TestCreateDocumentStoresNormalizedTags(t *testing.T) {
+func TestCreateDocument_StoresNormalizedTags(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
 		"filename":       "contract.pdf",
 		"mime_type":      "application/pdf",
@@ -130,6 +135,7 @@ func TestCreateDocumentStoresNormalizedTags(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.Code)
 	}
 
+	// Assert
 	var body struct {
 		ID   string   `json:"id"`
 		Tags []string `json:"tags"`
@@ -146,9 +152,11 @@ func TestCreateDocumentStoresNormalizedTags(t *testing.T) {
 	}
 }
 
-func TestCreateDocumentAcceptsPNG(t *testing.T) {
+func TestCreateDocument_AcceptsPNGFiles(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
 		"filename":       "scan.png",
 		"mime_type":      "image/png",
@@ -159,6 +167,7 @@ func TestCreateDocumentAcceptsPNG(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.Code)
 	}
 
+	// Assert
 	var body struct {
 		MIMEType string `json:"mime_type"`
 	}
@@ -168,9 +177,11 @@ func TestCreateDocumentAcceptsPNG(t *testing.T) {
 	}
 }
 
-func TestCreateDocumentAcceptsDOCX(t *testing.T) {
+func TestCreateDocument_AcceptsDOCXFiles(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
 		"filename":       "contract.docx",
 		"mime_type":      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -181,6 +192,7 @@ func TestCreateDocumentAcceptsDOCX(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.Code)
 	}
 
+	// Assert
 	var body struct {
 		MIMEType string `json:"mime_type"`
 	}
@@ -190,9 +202,11 @@ func TestCreateDocumentAcceptsDOCX(t *testing.T) {
 	}
 }
 
-func TestContractSupportsMultipleFilesAndReorder(t *testing.T) {
+func TestContract_SupportsMultipleFilesAndReordering(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	createContractResp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts", map[string]any{
 		"name": "MSA 2026",
 	}, api.CreateContract)
@@ -200,6 +214,7 @@ func TestContractSupportsMultipleFilesAndReorder(t *testing.T) {
 		t.Fatalf("expected 201, got %d", createContractResp.Code)
 	}
 
+	// Assert
 	var contractBody struct {
 		ID string `json:"id"`
 	}
@@ -275,7 +290,8 @@ func TestContractSupportsMultipleFilesAndReorder(t *testing.T) {
 	}
 }
 
-func TestGetDocumentContentStreamsOriginalFile(t *testing.T) {
+func TestGetDocumentContent_StreamsOriginalFile(t *testing.T) {
+	// Arrange
 	store := &stubDocumentStore{getBody: []byte("%PDF-test")}
 	api := NewAPI(noopLogger{}, nil, store, nil)
 
@@ -291,8 +307,10 @@ func TestGetDocumentContentStreamsOriginalFile(t *testing.T) {
 	req.SetPathValue("document_id", documentID)
 	resp := httptest.NewRecorder()
 
+	// Act
 	api.GetDocumentContent(resp, req)
 
+	// Assert
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
@@ -310,7 +328,8 @@ func TestGetDocumentContentStreamsOriginalFile(t *testing.T) {
 	}
 }
 
-func TestGetDocumentContentReturnsBadGatewayWhenStorageReadFails(t *testing.T) {
+func TestGetDocumentContent_ReturnsBadGatewayWhenStorageReadFails(t *testing.T) {
+	// Arrange
 	store := &stubDocumentStore{getErr: errors.New("boom")}
 	api := NewAPI(noopLogger{}, nil, store, nil)
 
@@ -326,8 +345,10 @@ func TestGetDocumentContentReturnsBadGatewayWhenStorageReadFails(t *testing.T) {
 	req.SetPathValue("document_id", documentID)
 	resp := httptest.NewRecorder()
 
+	// Act
 	api.GetDocumentContent(resp, req)
 
+	// Assert
 	if resp.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", resp.Code)
 	}
@@ -337,9 +358,11 @@ func TestGetDocumentContentReturnsBadGatewayWhenStorageReadFails(t *testing.T) {
 	}
 }
 
-func TestUpdateContractUpdatesNameAndTags(t *testing.T) {
+func TestUpdateContract_UpdatesNameAndTags(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	createResp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts", map[string]any{
 		"name": "Original Name",
 		"tags": []string{"  legal  ", "Finance", "finance"},
@@ -363,6 +386,7 @@ func TestUpdateContractUpdatesNameAndTags(t *testing.T) {
 
 	api.UpdateContract(updateResp, updateReq)
 
+	// Assert
 	if updateResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", updateResp.Code)
 	}
@@ -380,7 +404,8 @@ func TestUpdateContractUpdatesNameAndTags(t *testing.T) {
 	}
 }
 
-func TestUpdateContractRejectsEmptyPayload(t *testing.T) {
+func TestUpdateContract_ReturnsBadRequestForEmptyPayload(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
 	contractID := "00000000-0000-4000-8000-000000000021"
@@ -396,8 +421,10 @@ func TestUpdateContractRejectsEmptyPayload(t *testing.T) {
 	req.SetPathValue("contract_id", contractID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.UpdateContract(w, req)
 
+	// Assert
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
@@ -407,9 +434,11 @@ func TestUpdateContractRejectsEmptyPayload(t *testing.T) {
 	}
 }
 
-func TestCreateClauseCheckRejectsShortText(t *testing.T) {
+func TestCreateClauseCheck_ReturnsBadRequestForShortText(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/clause-presence", map[string]any{
 		"required_clause_text": "abc",
 	}, api.CreateClauseCheck)
@@ -418,15 +447,18 @@ func TestCreateClauseCheckRejectsShortText(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.Code)
 	}
 
+	// Assert
 	body := decodeJSONBody(t, resp)
 	if body.Error.Code != "invalid_argument" {
 		t.Fatalf("expected invalid_argument error code, got %q", body.Error.Code)
 	}
 }
 
-func TestCreateCompanyNameCheckRejectsShortOldCompanyName(t *testing.T) {
+func TestCreateCompanyNameCheck_ReturnsBadRequestForShortOldCompanyName(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/company-name", map[string]any{
 		"old_company_name": " ",
 	}, api.CreateCompanyNameCheck)
@@ -435,15 +467,18 @@ func TestCreateCompanyNameCheckRejectsShortOldCompanyName(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.Code)
 	}
 
+	// Assert
 	body := decodeJSONBody(t, resp)
 	if body.Error.Code != "invalid_argument" {
 		t.Fatalf("expected invalid_argument error code, got %q", body.Error.Code)
 	}
 }
 
-func TestCreateClauseCheckRejectsUnknownDocumentID(t *testing.T) {
+func TestCreateClauseCheck_ReturnsBadRequestForUnknownDocumentID(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/clause-presence", map[string]any{
 		"document_ids":         []string{"00000000-0000-4000-8000-000000000001"},
 		"required_clause_text": "payment terms are required",
@@ -453,13 +488,15 @@ func TestCreateClauseCheckRejectsUnknownDocumentID(t *testing.T) {
 		t.Fatalf("expected 400, got %d", resp.Code)
 	}
 
+	// Assert
 	body := decodeJSONBody(t, resp)
 	if body.Error.Code != "invalid_argument" {
 		t.Fatalf("expected invalid_argument error code, got %q", body.Error.Code)
 	}
 }
 
-func TestGetCheckResultsReturnsConflictWhenNotCompleted(t *testing.T) {
+func TestGetCheckResults_ReturnsConflictWhenCheckIsNotCompleted(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 	checkID := "00000000-0000-4000-8000-000000000001"
 	api.checks[checkID] = checkRun{
@@ -473,8 +510,10 @@ func TestGetCheckResultsReturnsConflictWhenNotCompleted(t *testing.T) {
 	req.SetPathValue("check_id", checkID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.GetCheckResults(w, req)
 
+	// Assert
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", w.Code)
 	}
@@ -485,7 +524,8 @@ func TestGetCheckResultsReturnsConflictWhenNotCompleted(t *testing.T) {
 	}
 }
 
-func TestDeleteDocumentRemovesDocumentAndRelatedData(t *testing.T) {
+func TestDeleteDocument_RemovesDocumentAndRelatedData(t *testing.T) {
+	// Arrange
 	store := &stubDocumentStore{}
 	api := NewAPI(noopLogger{}, nil, store, nil)
 
@@ -522,8 +562,10 @@ func TestDeleteDocumentRemovesDocumentAndRelatedData(t *testing.T) {
 	req.SetPathValue("document_id", documentID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.DeleteDocument(w, req)
 
+	// Assert
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
@@ -547,7 +589,8 @@ func TestDeleteDocumentRemovesDocumentAndRelatedData(t *testing.T) {
 	}
 }
 
-func TestDeleteDocumentKeepsMetadataWhenStorageDeleteFails(t *testing.T) {
+func TestDeleteDocument_KeepsMetadataWhenStorageDeleteFails(t *testing.T) {
+	// Arrange
 	store := &stubDocumentStore{deleteErr: errors.New("storage is down")}
 	api := NewAPI(noopLogger{}, nil, store, nil)
 
@@ -566,8 +609,10 @@ func TestDeleteDocumentKeepsMetadataWhenStorageDeleteFails(t *testing.T) {
 	req.SetPathValue("document_id", documentID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.DeleteDocument(w, req)
 
+	// Assert
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
@@ -576,7 +621,8 @@ func TestDeleteDocumentKeepsMetadataWhenStorageDeleteFails(t *testing.T) {
 	}
 }
 
-func TestDeleteContractRemovesRelatedChecksAndCopyEvents(t *testing.T) {
+func TestDeleteContract_RemovesRelatedChecksAndCopyEvents(t *testing.T) {
+	// Arrange
 	store := &stubDocumentStore{}
 	api := NewAPI(noopLogger{}, nil, store, nil)
 
@@ -628,8 +674,10 @@ func TestDeleteContractRemovesRelatedChecksAndCopyEvents(t *testing.T) {
 	req.SetPathValue("contract_id", contractID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.DeleteContract(w, req)
 
+	// Assert
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
@@ -659,7 +707,8 @@ func TestDeleteContractRemovesRelatedChecksAndCopyEvents(t *testing.T) {
 	}
 }
 
-func TestListDocumentsFiltersByTags(t *testing.T) {
+func TestListDocuments_FiltersByTags(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
 	create := func(tags []string) {
@@ -680,8 +729,11 @@ func TestListDocumentsFiltersByTags(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/documents?tag=msa&tag=vendor", nil)
 	w := httptest.NewRecorder()
+
+	// Act
 	api.ListDocuments(w, req)
 
+	// Assert
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -699,7 +751,8 @@ func TestListDocumentsFiltersByTags(t *testing.T) {
 	}
 }
 
-func TestGetDocumentTextReturnsExtractedText(t *testing.T) {
+func TestGetDocumentText_ReturnsExtractedText(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 	documentID := "00000000-0000-4000-8000-000000000051"
 	api.documents[documentID] = document{
@@ -715,8 +768,10 @@ func TestGetDocumentTextReturnsExtractedText(t *testing.T) {
 	req.SetPathValue("document_id", documentID)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.GetDocumentText(w, req)
 
+	// Assert
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -739,12 +794,17 @@ func TestGetDocumentTextReturnsExtractedText(t *testing.T) {
 	}
 }
 
-func TestSearchContractsRejectsInvalidStrategy(t *testing.T) {
+func TestSearchContracts_ReturnsBadRequestForInvalidStrategy(t *testing.T) {
+	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
 		"query_text": "payment terms",
 		"strategy":   "hybrid",
 	}, api.SearchContracts)
+
+	// Assert
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.Code)
 	}
@@ -754,7 +814,8 @@ func TestSearchContractsRejectsInvalidStrategy(t *testing.T) {
 	}
 }
 
-func TestSearchContractsPassesStrategyToAI(t *testing.T) {
+func TestSearchContracts_PassesStrategyToAI(t *testing.T) {
+	// Arrange
 	aiClient := &searchCapturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 	documentID := "00000000-0000-4000-8000-000000000071"
@@ -765,10 +826,13 @@ func TestSearchContractsPassesStrategyToAI(t *testing.T) {
 		UpdatedAt: time.Now().UTC(),
 	}
 
+	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
 		"query_text": "payment terms",
 		"strategy":   "strict",
 	}, api.SearchContracts)
+
+	// Assert
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
@@ -780,7 +844,8 @@ func TestSearchContractsPassesStrategyToAI(t *testing.T) {
 	}
 }
 
-func TestSearchContractsPropagatesRequestContext(t *testing.T) {
+func TestSearchContracts_PropagatesRequestContext(t *testing.T) {
+	// Arrange
 	aiClient := &searchCapturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 	documentID := "00000000-0000-4000-8000-000000000072"
@@ -800,8 +865,10 @@ func TestSearchContractsPropagatesRequestContext(t *testing.T) {
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 
+	// Act
 	api.SearchContracts(w, req)
 
+	// Assert
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}

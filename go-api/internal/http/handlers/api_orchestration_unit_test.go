@@ -155,7 +155,8 @@ func (c *capturingAIClient) SearchSections(_ context.Context, req ai.SearchSecti
 	return ai.SearchSectionsResult{Items: []ai.SearchSectionsResultItem{}}, nil
 }
 
-func TestRunClauseCheckMarksCompletedAndPassesRequest(t *testing.T) {
+func TestRunClauseCheck_MarksCompletedAndPassesRequest(t *testing.T) {
+	// Arrange
 	aiClient := &capturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 
@@ -169,11 +170,13 @@ func TestRunClauseCheckMarksCompletedAndPassesRequest(t *testing.T) {
 		DocumentIDs: []string{docID},
 	}
 
+	// Act
 	api.runClauseCheck(checkID, clauseCheckRequest{
 		RequiredClauseText: "must include payment terms",
 		ContextHint:        "scope: fees",
 	}, "req-123")
 
+	// Assert
 	if aiClient.clauseReq == nil {
 		t.Fatal("expected AnalyzeClause to be called")
 	}
@@ -205,7 +208,8 @@ func TestRunClauseCheckMarksCompletedAndPassesRequest(t *testing.T) {
 	}
 }
 
-func TestRunCompanyNameCheckMarksFailedWhenAIClientReturnsError(t *testing.T) {
+func TestRunCompanyNameCheck_MarksFailedWhenAIClientReturnsError(t *testing.T) {
+	// Arrange
 	aiClient := &capturingAIClient{companyErr: errors.New("upstream timeout")}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 
@@ -219,11 +223,13 @@ func TestRunCompanyNameCheckMarksFailedWhenAIClientReturnsError(t *testing.T) {
 		DocumentIDs: []string{docID},
 	}
 
+	// Act
 	api.runCompanyNameCheck(checkID, companyNameCheckRequest{
 		OldCompanyName: "Old Corp",
 		NewCompanyName: "New Corp",
 	}, "req-789")
 
+	// Assert
 	if aiClient.companyReq == nil {
 		t.Fatal("expected AnalyzeCompanyName to be called")
 	}
@@ -246,7 +252,8 @@ func TestRunCompanyNameCheckMarksFailedWhenAIClientReturnsError(t *testing.T) {
 	}
 }
 
-func TestChatContractBuildsAIRequestFromContractFiles(t *testing.T) {
+func TestChatContract_BuildsAIRequestFromContractFiles(t *testing.T) {
+	// Arrange
 	aiClient := &capturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 
@@ -283,8 +290,10 @@ func TestChatContractBuildsAIRequestFromContractFiles(t *testing.T) {
 	req.SetPathValue("contract_id", contractID)
 	rec := httptest.NewRecorder()
 
+	// Act
 	api.ChatContract(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -316,7 +325,8 @@ func TestChatContractBuildsAIRequestFromContractFiles(t *testing.T) {
 	}
 }
 
-func TestRunLLMReviewCheckPassesExtractedDocumentText(t *testing.T) {
+func TestRunLLMReviewCheck_PassesExtractedDocumentText(t *testing.T) {
+	// Arrange
 	aiClient := &capturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
 
@@ -335,10 +345,12 @@ func TestRunLLMReviewCheckPassesExtractedDocumentText(t *testing.T) {
 		ExtractedText: "Page 1\fEither party may terminate on thirty days written notice.",
 	}
 
+	// Act
 	api.runLLMReviewCheck(checkID, llmReviewCheckRequest{
 		Instructions: "Review the full contract for termination for convenience.",
 	}, "req-llm-123")
 
+	// Assert
 	if aiClient.llmReq == nil {
 		t.Fatal("expected AnalyzeLLMReview to be called")
 	}

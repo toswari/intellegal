@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-func TestCopyDocumentRetriesAndSucceeds(t *testing.T) {
+func TestCopyDocument_RetriesAndEventuallySucceeds(t *testing.T) {
+	// Arrange
 	attempts := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
@@ -32,10 +33,14 @@ func TestCopyDocumentRetriesAndSucceeds(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "top-secret", time.Second, 3)
+
+	// Act
 	result, err := client.CopyDocument(context.Background(), CopyRequest{DocumentID: "doc-1", Filename: "contract.pdf"})
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
+
+	// Assert
 	if attempts != 3 {
 		t.Fatalf("expected 3 attempts, got %d", attempts)
 	}
@@ -47,7 +52,8 @@ func TestCopyDocumentRetriesAndSucceeds(t *testing.T) {
 	}
 }
 
-func TestCopyDocumentReturnsNonRetriableError(t *testing.T) {
+func TestCopyDocument_ReturnsNonRetriableErrorForBadRequest(t *testing.T) {
+	// Arrange
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("invalid payload"))
@@ -55,11 +61,14 @@ func TestCopyDocumentReturnsNonRetriableError(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "", time.Second, 5)
+
+	// Act
 	_, err := client.CopyDocument(context.Background(), CopyRequest{DocumentID: "doc-1"})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
 
+	// Assert
 	var callErr *CallError
 	if ok := errors.As(err, &callErr); !ok {
 		t.Fatalf("expected CallError, got %T", err)
@@ -75,13 +84,18 @@ func TestCopyDocumentReturnsNonRetriableError(t *testing.T) {
 	}
 }
 
-func TestCopyDocumentDisabledClient(t *testing.T) {
+func TestCopyDocument_ReturnsErrorWhenClientIsDisabled(t *testing.T) {
+	// Arrange
 	client := NewClient("", "", time.Second, 3)
+
+	// Act
 	if client.Enabled() {
 		t.Fatal("expected disabled client")
 	}
 
 	_, err := client.CopyDocument(context.Background(), CopyRequest{DocumentID: "doc-1"})
+
+	// Assert
 	if err == nil {
 		t.Fatal("expected error for disabled client")
 	}
