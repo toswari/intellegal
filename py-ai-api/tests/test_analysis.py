@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from py_ai_api.analysis import AnalysisPipeline
 from py_ai_api.gemini import GeminiContractChatCitation, GeminiContractChatResult, GeminiReviewResult
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeQdrant:

@@ -8,6 +8,8 @@ import pytest
 
 from py_ai_api.extraction import ExtractionError, ExtractionPipeline, OCRText, _load_document_bytes
 
+pytestmark = pytest.mark.unit
+
 
 class _FakePDFExtractor:
     def extract_pages(self, payload: bytes) -> list[str]:

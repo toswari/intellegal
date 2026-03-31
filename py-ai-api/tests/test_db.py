@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from py_ai_api import db
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeCursor:

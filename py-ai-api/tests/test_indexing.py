@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from py_ai_api.indexing import IndexPageInput, IndexingPipeline
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeQdrant:

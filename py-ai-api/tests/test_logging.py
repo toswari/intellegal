@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from py_ai_api.logging import configure_logging
+
+pytestmark = pytest.mark.unit
 
 
 def test_configure_logging_uses_uppercased_level_and_format(monkeypatch) -> None:

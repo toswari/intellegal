@@ -1,4 +1,8 @@
+import pytest
+
 from py_ai_api.config import Settings
+
+pytestmark = pytest.mark.unit
 
 
 def test_database_url_adds_sslmode_disable() -> None:

@@ -1,11 +1,6 @@
 package logging
 
-import (
-	"fmt"
-	"io"
-
-	"github.com/sirupsen/logrus"
-)
+import logger "github.com/Gratheon/log-lib-go"
 
 type Logger interface {
 	Info(msg string, args ...any)
@@ -14,56 +9,34 @@ type Logger interface {
 }
 
 type Adapter struct {
-	base *logrus.Logger
+	discard bool
 }
 
-func New(base *logrus.Logger) *Adapter {
-	return &Adapter{base: base}
+func New(_ any) *Adapter {
+	return &Adapter{}
 }
 
-func NewDiscard(base *logrus.Logger) *Adapter {
-	base.SetOutput(io.Discard)
-	return New(base)
+func NewDiscard(_ any) *Adapter {
+	return &Adapter{discard: true}
 }
 
 func (a *Adapter) Info(msg string, args ...any) {
-	a.log(func(entry *logrus.Entry) {
-		entry.Info(msg)
-	}, args...)
+	if a == nil || a.discard {
+		return
+	}
+	logger.Info(msg, args...)
 }
 
 func (a *Adapter) Warn(msg string, args ...any) {
-	a.log(func(entry *logrus.Entry) {
-		entry.Warn(msg)
-	}, args...)
+	if a == nil || a.discard {
+		return
+	}
+	logger.Warn(msg, args...)
 }
 
 func (a *Adapter) Error(msg string, args ...any) {
-	a.log(func(entry *logrus.Entry) {
-		entry.Error(msg)
-	}, args...)
-}
-
-func (a *Adapter) log(write func(*logrus.Entry), args ...any) {
-	if a == nil || a.base == nil {
+	if a == nil || a.discard {
 		return
 	}
-	write(a.base.WithFields(toFields(args...)))
-}
-
-func toFields(args ...any) logrus.Fields {
-	fields := logrus.Fields{}
-	for i := 0; i < len(args); i += 2 {
-		key := fmt.Sprintf("field_%d", i/2)
-		if candidate, ok := args[i].(string); ok && candidate != "" {
-			key = candidate
-		}
-
-		if i+1 >= len(args) {
-			fields[key] = nil
-			continue
-		}
-		fields[key] = args[i+1]
-	}
-	return fields
+	logger.Error(msg, args...)
 }

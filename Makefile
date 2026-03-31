@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help init up down ps logs clean clean-artifacts test test-go test-py test-fe migrate-up migrate-down migrate-version
+.PHONY: help init up down ps logs clean clean-artifacts test test-go test-py test-py-unit test-py-integration test-fe migrate-up migrate-down migrate-version
 
 help:
 	@echo "Targets:"
@@ -13,7 +13,9 @@ help:
 	@echo "  clean-artifacts - remove local generated build/cache artifacts"
 	@echo "  test   - run all test suites"
 	@echo "  test-go - run Go API tests"
-	@echo "  test-py - run Python AI API tests"
+	@echo "  test-py - run Python AI API unit + integration tests with combined coverage"
+	@echo "  test-py-unit - run Python AI API unit tests with coverage"
+	@echo "  test-py-integration - run Python AI API integration tests with coverage"
 	@echo "  test-fe - run frontend tests"
 	@echo "  migrate-up - apply all pending PostgreSQL migrations"
 	@echo "  migrate-down - roll back latest PostgreSQL migration"
@@ -56,7 +58,25 @@ test-py:
 	python3 -m venv .venv && \
 	. .venv/bin/activate && \
 	pip install -e '.[dev]' >/dev/null && \
-	pytest --cov=py_ai_api --cov-report=term-missing
+	rm -f .coverage && \
+	pytest -m unit --cov=py_ai_api --cov-report= && \
+	pytest -m integration --cov=py_ai_api --cov-append --cov-report=term-missing
+
+test-py-unit:
+	cd py-ai-api && \
+	python3 -m venv .venv && \
+	. .venv/bin/activate && \
+	pip install -e '.[dev]' >/dev/null && \
+	rm -f .coverage && \
+	pytest -m unit --cov=py_ai_api --cov-report=term-missing
+
+test-py-integration:
+	cd py-ai-api && \
+	python3 -m venv .venv && \
+	. .venv/bin/activate && \
+	pip install -e '.[dev]' >/dev/null && \
+	rm -f .coverage && \
+	pytest -m integration --cov=py_ai_api --cov-report=term-missing
 
 test-fe:
 	cd frontend && if command -v bun >/dev/null 2>&1; then bun install >/dev/null && bun run test; else npm install >/dev/null && npm run test; fi

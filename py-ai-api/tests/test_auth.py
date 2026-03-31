@@ -6,6 +6,8 @@ from fastapi import HTTPException, status
 from py_ai_api.auth import require_internal_service_auth
 from py_ai_api.config import Settings
 
+pytestmark = pytest.mark.unit
+
 
 def test_require_internal_service_auth_rejects_missing_configuration() -> None:
     with pytest.raises(HTTPException) as err:

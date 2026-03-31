@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from py_ai_api.gemini import GeminiReviewer
+
+pytestmark = pytest.mark.unit
 
 
 def test_gemini_reviewer_parses_json_response() -> None:

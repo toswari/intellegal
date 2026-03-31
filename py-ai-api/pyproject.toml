@@ -27,6 +27,10 @@ dev = [
 minversion = "8.0"
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "unit: fast isolated tests with no app wiring or external-style boundaries",
+  "integration: tests that exercise framework wiring or multi-component behavior",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

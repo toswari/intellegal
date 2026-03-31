@@ -1,11 +1,14 @@
 from py_ai_api.analysis import AnalysisResult, AnalysisResultItem, ContractChatCitation, ContractChatResult
 from fastapi.testclient import TestClient
+import pytest
 
 from py_ai_api.config import get_settings
 from py_ai_api.extraction import ExtractionResult, PageExtraction
 from py_ai_api.indexing import IndexingResult
 from py_ai_api.main import app, get_analysis_pipeline, get_extraction_pipeline, get_indexing_pipeline, get_search_pipeline
 from py_ai_api.search import SearchSectionsResult, SearchSectionsResultItem
+
+pytestmark = pytest.mark.integration
 
 
 def _client_with_env(monkeypatch, *, token: str = "test-token") -> TestClient:
