@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"legal-doc-intel/go-api/internal/ai"
+	"legal-doc-intel/go-api/internal/ids"
 )
 
 func TestNormalizeTags_RemovesDuplicatesAndWhitespace(t *testing.T) {
@@ -41,7 +42,7 @@ func TestNormalizeTags_ReturnsErrorForLongAndExcessiveTags(t *testing.T) {
 
 	input := make([]string, 21)
 	for i := range input {
-		input[i] = newUUID()
+		input[i] = ids.NewUUID()
 	}
 
 	// Assert

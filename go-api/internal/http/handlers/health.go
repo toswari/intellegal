@@ -2,47 +2,70 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
-
-	"legal-doc-intel/go-api/internal/health"
 )
 
-type readinessResponse struct {
+type DependencyProbe struct {
+	Name  string
+	Probe func(ctx context.Context) error
+}
+
+type dependencyStatus struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type livenessResponse struct {
 	Status    string `json:"status"`
 	Timestamp string `json:"timestamp"`
-	Error     string `json:"error,omitempty"`
 }
 
-type ReadinessProbe func(ctx context.Context) error
+type readinessResponse struct {
+	Status       string                      `json:"status"`
+	Timestamp    string                      `json:"timestamp"`
+	Dependencies map[string]dependencyStatus `json:"dependencies,omitempty"`
+}
+
+func NewDependencyProbe(name string, probe func(ctx context.Context) error) DependencyProbe {
+	return DependencyProbe{Name: name, Probe: probe}
+}
 
 func Health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, health.OK())
+	writeJSON(w, http.StatusOK, livenessResponse{
+		Status:    "ok",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
-func Readiness(probe ReadinessProbe) http.HandlerFunc {
+func Readiness(probes ...DependencyProbe) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if probe != nil {
-			if err := probe(r.Context()); err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, readinessResponse{
-					Status:    "not_ready",
-					Timestamp: time.Now().UTC().Format(time.RFC3339),
-					Error:     err.Error(),
-				})
-				return
+		dependencies := make(map[string]dependencyStatus)
+		overallStatus := http.StatusOK
+		readiness := "ready"
+
+		for _, probe := range probes {
+			if probe.Probe == nil {
+				continue
 			}
+
+			if err := probe.Probe(r.Context()); err != nil {
+				overallStatus = http.StatusServiceUnavailable
+				readiness = "not_ready"
+				dependencies[probe.Name] = dependencyStatus{
+					Status: "down",
+					Error:  err.Error(),
+				}
+				continue
+			}
+
+			dependencies[probe.Name] = dependencyStatus{Status: "up"}
 		}
 
-		writeJSON(w, http.StatusOK, readinessResponse{
-			Status:    "ready",
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		writeJSON(w, overallStatus, readinessResponse{
+			Status:       readiness,
+			Timestamp:    time.Now().UTC().Format(time.RFC3339),
+			Dependencies: dependencies,
 		})
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
 }

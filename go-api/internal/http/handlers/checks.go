@@ -11,6 +11,7 @@ import (
 
 	"legal-doc-intel/go-api/internal/ai"
 	"legal-doc-intel/go-api/internal/http/middleware"
+	"legal-doc-intel/go-api/internal/ids"
 )
 
 func (a *API) CreateClauseCheck(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +94,7 @@ func (a *API) CreateLLMReviewCheck(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetCheck(w http.ResponseWriter, r *http.Request) {
 	checkID := pathParam(r, "check_id")
-	if !isUUID(checkID) {
+	if !ids.IsUUID(checkID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "check_id must be a valid UUID", false, nil)
 		return
 	}
@@ -125,7 +126,7 @@ func (a *API) GetCheck(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetCheckResults(w http.ResponseWriter, r *http.Request) {
 	checkID := pathParam(r, "check_id")
-	if !isUUID(checkID) {
+	if !ids.IsUUID(checkID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "check_id must be a valid UUID", false, nil)
 		return
 	}
@@ -198,7 +199,7 @@ func (a *API) SearchContracts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.ai.SearchSections(r.Context(), ai.SearchSectionsRequest{
-		JobID:       newUUID(),
+		JobID:       ids.NewUUID(),
 		RequestID:   middleware.GetRequestID(r.Context()),
 		QueryText:   queryText,
 		DocumentIDs: resolvedDocIDs,
@@ -263,7 +264,7 @@ func (a *API) createCheck(r *http.Request, checkType string, payload any, docume
 		}
 	}
 
-	checkID = newUUID()
+	checkID = ids.NewUUID()
 	now := time.Now().UTC()
 	status = checkStatusQueued
 	a.checks[checkID] = checkRun{
@@ -296,23 +297,23 @@ func (a *API) resolveDocumentIDs(explicit []string) ([]string, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	ids := explicit
-	if len(ids) == 0 {
-		ids = make([]string, 0, len(a.documents))
+	documentIDs := explicit
+	if len(documentIDs) == 0 {
+		documentIDs = make([]string, 0, len(a.documents))
 		for id := range a.documents {
-			ids = append(ids, id)
+			documentIDs = append(documentIDs, id)
 		}
-		sort.Strings(ids)
+		sort.Strings(documentIDs)
 	}
 
-	if len(ids) == 0 {
+	if len(documentIDs) == 0 {
 		return nil, fmt.Errorf("at least one document is required")
 	}
 
-	seen := make(map[string]struct{}, len(ids))
-	resolved := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if !isUUID(id) {
+	seen := make(map[string]struct{}, len(documentIDs))
+	resolved := make([]string, 0, len(documentIDs))
+	for _, id := range documentIDs {
+		if !ids.IsUUID(id) {
 			return nil, fmt.Errorf("document_id must be a valid UUID: %s", id)
 		}
 		if _, ok := a.documents[id]; !ok {
@@ -338,7 +339,7 @@ func (a *API) runClauseCheck(checkID string, req clauseCheckRequest, requestID s
 	a.mu.RUnlock()
 
 	result, err := a.ai.AnalyzeClause(context.Background(), ai.AnalyzeClauseRequest{
-		JobID:              newUUID(),
+		JobID:              ids.NewUUID(),
 		RequestID:          requestID,
 		CheckID:            checkID,
 		DocumentIDs:        run.DocumentIDs,
@@ -364,7 +365,7 @@ func (a *API) runCompanyNameCheck(checkID string, req companyNameCheckRequest, r
 	a.mu.RUnlock()
 
 	result, err := a.ai.AnalyzeCompanyName(context.Background(), ai.AnalyzeCompanyNameRequest{
-		JobID:          newUUID(),
+		JobID:          ids.NewUUID(),
 		RequestID:      requestID,
 		CheckID:        checkID,
 		DocumentIDs:    run.DocumentIDs,
@@ -402,7 +403,7 @@ func (a *API) runLLMReviewCheck(checkID string, req llmReviewCheckRequest, reque
 	a.mu.RUnlock()
 
 	result, err := a.ai.AnalyzeLLMReview(context.Background(), ai.AnalyzeLLMReviewRequest{
-		JobID:        newUUID(),
+		JobID:        ids.NewUUID(),
 		RequestID:    requestID,
 		CheckID:      checkID,
 		DocumentIDs:  run.DocumentIDs,

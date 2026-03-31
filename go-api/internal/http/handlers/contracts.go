@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"legal-doc-intel/go-api/internal/http/middleware"
+	"legal-doc-intel/go-api/internal/ids"
 )
 
 func (a *API) CreateContract(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +41,7 @@ func (a *API) CreateContract(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	item := contract{
-		ID:         newUUID(),
+		ID:         ids.NewUUID(),
 		Name:       name,
 		SourceType: sourceType,
 		SourceRef:  req.SourceRef,
@@ -116,7 +117,7 @@ func (a *API) ListContracts(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetContract(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}
@@ -141,7 +142,7 @@ func (a *API) GetContract(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}
@@ -207,7 +208,7 @@ func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) DeleteContract(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}
@@ -269,7 +270,7 @@ func (a *API) DeleteContract(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) AddContractFile(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}
@@ -290,7 +291,7 @@ func (a *API) AddContractFile(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) ReorderContractFiles(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}

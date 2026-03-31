@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -14,12 +13,12 @@ import (
 func New(
 	logger logging.Logger,
 	api *handlers.API,
-	readinessProbe func(context.Context) error,
+	readinessProbes []handlers.DependencyProbe,
 	corsAllowedOrigins []string,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/v1/health", handlers.Health)
-	r.Get("/api/v1/readiness", handlers.Readiness(readinessProbe))
+	r.Get("/api/v1/readiness", handlers.Readiness(readinessProbes...))
 
 	r.Route("/api/v1/documents", func(r chi.Router) {
 		r.Post("/", api.CreateDocument)

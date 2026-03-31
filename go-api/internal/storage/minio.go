@@ -109,6 +109,19 @@ func (a *MinIOAdapter) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+func (a *MinIOAdapter) HealthCheck(ctx context.Context) error {
+	if a == nil || a.client == nil {
+		return fmt.Errorf("minio is not initialized")
+	}
+
+	_, err := a.client.BucketExists(ctx, a.bucket)
+	if err != nil {
+		return fmt.Errorf("check minio bucket: %w", err)
+	}
+
+	return nil
+}
+
 func validateStorageKey(key string) error {
 	cleanKey := path.Clean(strings.TrimSpace(key))
 	if cleanKey == "" || cleanKey == "." {

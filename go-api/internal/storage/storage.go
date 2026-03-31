@@ -14,3 +14,7 @@ type Adapter interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 }
+
+type HealthChecker interface {
+	HealthCheck(ctx context.Context) error
+}

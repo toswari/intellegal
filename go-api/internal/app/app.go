@@ -53,11 +53,19 @@ func New(cfg config.Config, logger logging.Logger) (*App, error) {
 		_ = pg.Close()
 		return nil, fmt.Errorf("initialize persisted API state: %w", err)
 	}
-	router := httprouter.New(logger, api, func(ctx context.Context) error {
-		pingCtx, cancel := context.WithTimeout(ctx, cfg.DatabasePingTimeout)
-		defer cancel()
-		return pg.Ping(pingCtx)
-	}, cfg.CORSAllowedOrigins)
+
+	readinessProbes := []handlers.DependencyProbe{
+		handlers.NewDependencyProbe("postgres", func(ctx context.Context) error {
+			pingCtx, cancel := context.WithTimeout(ctx, cfg.DatabasePingTimeout)
+			defer cancel()
+			return pg.Ping(pingCtx)
+		}),
+	}
+	if healthChecker, ok := store.(storage.HealthChecker); ok {
+		readinessProbes = append(readinessProbes, handlers.NewDependencyProbe("storage", healthChecker.HealthCheck))
+	}
+
+	router := httprouter.New(logger, api, readinessProbes, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

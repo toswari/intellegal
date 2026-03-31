@@ -2,21 +2,17 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"legal-doc-intel/go-api/internal/ai"
+	"legal-doc-intel/go-api/internal/checksum"
 	"legal-doc-intel/go-api/internal/db"
 	"legal-doc-intel/go-api/internal/externalcopy"
 
@@ -38,7 +34,6 @@ const (
 )
 
 var (
-	uuidRx             = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	validDocumentMimes = map[string]struct{}{
 		"application/pdf": {},
 		"image/jpeg":      {},
@@ -465,27 +460,7 @@ func hashPayload(payload any, documentIDs []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return sha256Hex(data), nil
-}
-
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func isUUID(v string) bool {
-	return uuidRx.MatchString(strings.ToLower(v))
-}
-
-func newUUID() string {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	buf[6] = (buf[6] & 0x0f) | 0x40
-	buf[8] = (buf[8] & 0x3f) | 0x80
-
-	return fmt.Sprintf("%x-%x-%x-%x-%x", buf[0:4], buf[4:6], buf[6:8], buf[8:10], buf[10:16])
+	return checksum.SHA256Hex(data), nil
 }
 
 func extensionForFilename(filename, mimeType string) string {

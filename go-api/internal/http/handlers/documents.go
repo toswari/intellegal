@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"legal-doc-intel/go-api/internal/ai"
+	"legal-doc-intel/go-api/internal/checksum"
 	"legal-doc-intel/go-api/internal/externalcopy"
 	"legal-doc-intel/go-api/internal/http/middleware"
+	"legal-doc-intel/go-api/internal/ids"
 )
 
 func (a *API) CreateDocument(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +113,7 @@ func (a *API) ListDocuments(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetDocument(w http.ResponseWriter, r *http.Request) {
 	documentID := pathParam(r, "document_id")
-	if !isUUID(documentID) {
+	if !ids.IsUUID(documentID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
 		return
 	}
@@ -129,7 +131,7 @@ func (a *API) GetDocument(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	documentID := pathParam(r, "document_id")
-	if !isUUID(documentID) {
+	if !ids.IsUUID(documentID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
 		return
 	}
@@ -217,7 +219,7 @@ func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetDocumentText(w http.ResponseWriter, r *http.Request) {
 	documentID := pathParam(r, "document_id")
-	if !isUUID(documentID) {
+	if !ids.IsUUID(documentID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
 		return
 	}
@@ -241,7 +243,7 @@ func (a *API) GetDocumentText(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) GetDocumentContent(w http.ResponseWriter, r *http.Request) {
 	documentID := pathParam(r, "document_id")
-	if !isUUID(documentID) {
+	if !ids.IsUUID(documentID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "document_id must be a valid UUID", false, nil)
 		return
 	}
@@ -318,7 +320,7 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 
 	contractID := strings.TrimSpace(req.ContractID)
 	if contractID != "" {
-		if !isUUID(contractID) {
+		if !ids.IsUUID(contractID) {
 			return document{}, errors.New("contract_id must be a valid UUID")
 		}
 		a.mu.RLock()
@@ -330,8 +332,8 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 	}
 
 	now := time.Now().UTC()
-	docID := newUUID()
-	checksum := sha256Hex(payload)
+	docID := ids.NewUUID()
+	checksum := checksum.SHA256Hex(payload)
 	objectKey := fmt.Sprintf("documents/%s%s", docID, extensionForFilename(req.Filename, req.MIMEType))
 	storageURI, err := a.store.Put(ctx, objectKey, bytes.NewReader(payload))
 	if err != nil {
@@ -399,7 +401,7 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 	})
 
 	extractResult, err := a.ai.Extract(ctx, ai.ExtractRequest{
-		JobID:      newUUID(),
+		JobID:      ids.NewUUID(),
 		RequestID:  requestID,
 		DocumentID: docID,
 		StorageURI: storageURI,
@@ -419,7 +421,7 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 	}
 
 	if _, err := a.ai.Index(ctx, ai.IndexRequest{
-		JobID:           newUUID(),
+		JobID:           ids.NewUUID(),
 		RequestID:       requestID,
 		DocumentID:      docID,
 		VersionChecksum: checksum,
@@ -494,7 +496,7 @@ func (a *API) enqueueExternalCopy(doc document, requestID string) {
 	}
 
 	now := time.Now().UTC()
-	eventID := newUUID()
+	eventID := ids.NewUUID()
 	payload := map[string]any{
 		"request_id":  requestID,
 		"document_id": doc.ID,

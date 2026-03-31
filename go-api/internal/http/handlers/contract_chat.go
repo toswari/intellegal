@@ -7,11 +7,12 @@ import (
 
 	"legal-doc-intel/go-api/internal/ai"
 	"legal-doc-intel/go-api/internal/http/middleware"
+	"legal-doc-intel/go-api/internal/ids"
 )
 
 func (a *API) ChatContract(w http.ResponseWriter, r *http.Request) {
 	contractID := pathParam(r, "contract_id")
-	if !isUUID(contractID) {
+	if !ids.IsUUID(contractID) {
 		writeError(w, http.StatusBadRequest, "invalid_argument", "contract_id must be a valid UUID", false, nil)
 		return
 	}
@@ -59,7 +60,7 @@ func (a *API) ChatContract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.ai.ContractChat(context.Background(), ai.ContractChatRequest{
-		JobID:      newUUID(),
+		JobID:      ids.NewUUID(),
 		RequestID:  middleware.GetRequestID(r.Context()),
 		ContractID: contractID,
 		Messages:   messages,
