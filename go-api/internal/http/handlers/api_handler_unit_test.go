@@ -32,8 +32,9 @@ type stubDocumentStore struct {
 }
 
 type searchCapturingAIClient struct {
-	req ai.SearchSectionsRequest
-	ctx context.Context
+	req            ai.SearchSectionsRequest
+	ctx            context.Context
+	searchResponse ai.SearchSectionsResult
 }
 
 func (s *searchCapturingAIClient) AnalyzeClause(context.Context, ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
@@ -63,6 +64,9 @@ func (s *searchCapturingAIClient) Index(context.Context, ai.IndexRequest) (ai.In
 func (s *searchCapturingAIClient) SearchSections(ctx context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
 	s.ctx = ctx
 	s.req = req
+	if len(s.searchResponse.Items) > 0 {
+		return s.searchResponse, nil
+	}
 	return ai.SearchSectionsResult{
 		Items: []ai.SearchSectionsResultItem{
 			{
@@ -95,6 +99,10 @@ func (s *stubDocumentStore) Delete(_ context.Context, key string) error {
 		return s.deleteErr
 	}
 	return nil
+}
+
+func useInMemoryReaders(api *API) {
+	api.EnableInMemoryReadersForTesting()
 }
 
 func TestCreateDocument_ReturnsBadRequestForUnsupportedMIMEType(t *testing.T) {
@@ -205,6 +213,7 @@ func TestCreateDocument_AcceptsDOCXFiles(t *testing.T) {
 func TestContract_SupportsMultipleFilesAndReordering(t *testing.T) {
 	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
+	useInMemoryReaders(api)
 
 	// Act
 	createContractResp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts", map[string]any{
@@ -294,6 +303,7 @@ func TestGetDocumentContent_StreamsOriginalFile(t *testing.T) {
 	// Arrange
 	store := &stubDocumentStore{getBody: []byte("%PDF-test")}
 	api := NewAPI(noopLogger{}, nil, store, nil)
+	useInMemoryReaders(api)
 
 	documentID := "00000000-0000-4000-8000-000000000010"
 	api.documents[documentID] = document{
@@ -332,6 +342,7 @@ func TestGetDocumentContent_ReturnsBadGatewayWhenStorageReadFails(t *testing.T) 
 	// Arrange
 	store := &stubDocumentStore{getErr: errors.New("boom")}
 	api := NewAPI(noopLogger{}, nil, store, nil)
+	useInMemoryReaders(api)
 
 	documentID := "00000000-0000-4000-8000-000000000011"
 	api.documents[documentID] = document{
@@ -477,6 +488,7 @@ func TestCreateCompanyNameCheck_ReturnsBadRequestForShortOldCompanyName(t *testi
 func TestCreateClauseCheck_ReturnsBadRequestForUnknownDocumentID(t *testing.T) {
 	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
+	useInMemoryReaders(api)
 
 	// Act
 	resp := performJSONRequest(t, http.MethodPost, "/api/v1/checks/clause-presence", map[string]any{
@@ -521,6 +533,86 @@ func TestGetCheckResults_ReturnsConflictWhenCheckIsNotCompleted(t *testing.T) {
 	body := decodeJSONBody(t, w)
 	if body.Error.Code != "results_not_ready" {
 		t.Fatalf("expected results_not_ready, got %q", body.Error.Code)
+	}
+}
+
+func TestDeleteCheck_RemovesCheckAndIdempotencyRecord(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	checkID := "00000000-0000-4000-8000-000000000021"
+	api.checks[checkID] = checkRun{
+		CheckID:     checkID,
+		Status:      checkStatusCompleted,
+		CheckType:   checkTypeClause,
+		RequestedAt: time.Now().UTC(),
+		DocumentIDs: []string{"00000000-0000-4000-8000-000000000022"},
+	}
+	api.idempotency[checkTypeClause+":idem-delete-check"] = idempotencyRecord{
+		PayloadHash: "hash",
+		CheckID:     checkID,
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/guidelines/"+checkID, nil)
+	req.SetPathValue("check_id", checkID)
+	w := httptest.NewRecorder()
+
+	api.DeleteCheck(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+	if _, ok := api.checks[checkID]; ok {
+		t.Fatal("expected check to be removed")
+	}
+	if _, ok := api.idempotency[checkTypeClause+":idem-delete-check"]; ok {
+		t.Fatal("expected idempotency record to be removed")
+	}
+}
+
+func TestDeleteChecks_RemovesMultipleChecks(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	firstCheckID := "00000000-0000-4000-8000-000000000023"
+	secondCheckID := "00000000-0000-4000-8000-000000000024"
+	api.checks[firstCheckID] = checkRun{
+		CheckID:     firstCheckID,
+		Status:      checkStatusCompleted,
+		CheckType:   checkTypeClause,
+		RequestedAt: time.Now().UTC(),
+	}
+	api.checks[secondCheckID] = checkRun{
+		CheckID:     secondCheckID,
+		Status:      checkStatusCompleted,
+		CheckType:   checkTypeLLMReview,
+		RequestedAt: time.Now().UTC(),
+	}
+	api.idempotency[checkTypeClause+":idem-bulk-delete-1"] = idempotencyRecord{
+		PayloadHash: "hash-1",
+		CheckID:     firstCheckID,
+	}
+	api.idempotency[checkTypeLLMReview+":idem-bulk-delete-2"] = idempotencyRecord{
+		PayloadHash: "hash-2",
+		CheckID:     secondCheckID,
+	}
+
+	resp := performJSONRequest(t, http.MethodDelete, "/api/v1/guidelines", map[string]any{
+		"check_ids": []string{firstCheckID, secondCheckID},
+	}, api.DeleteChecks)
+
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.Code)
+	}
+	if _, ok := api.checks[firstCheckID]; ok {
+		t.Fatal("expected first check to be removed")
+	}
+	if _, ok := api.checks[secondCheckID]; ok {
+		t.Fatal("expected second check to be removed")
+	}
+	if _, ok := api.idempotency[checkTypeClause+":idem-bulk-delete-1"]; ok {
+		t.Fatal("expected first idempotency record to be removed")
+	}
+	if _, ok := api.idempotency[checkTypeLLMReview+":idem-bulk-delete-2"]; ok {
+		t.Fatal("expected second idempotency record to be removed")
 	}
 }
 
@@ -710,6 +802,7 @@ func TestDeleteContract_RemovesRelatedChecksAndCopyEvents(t *testing.T) {
 func TestListDocuments_FiltersByTags(t *testing.T) {
 	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
+	useInMemoryReaders(api)
 
 	create := func(tags []string) {
 		resp := performJSONRequest(t, http.MethodPost, "/api/v1/documents", map[string]any{
@@ -754,6 +847,7 @@ func TestListDocuments_FiltersByTags(t *testing.T) {
 func TestGetDocumentText_ReturnsExtractedText(t *testing.T) {
 	// Arrange
 	api := NewAPI(noopLogger{}, nil, nil, nil)
+	useInMemoryReaders(api)
 	documentID := "00000000-0000-4000-8000-000000000051"
 	api.documents[documentID] = document{
 		ID:            documentID,
@@ -818,6 +912,7 @@ func TestSearchContracts_PassesStrategyToAI(t *testing.T) {
 	// Arrange
 	aiClient := &searchCapturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	useInMemoryReaders(api)
 	documentID := "00000000-0000-4000-8000-000000000071"
 	api.documents[documentID] = document{
 		ID:        documentID,
@@ -839,8 +934,83 @@ func TestSearchContracts_PassesStrategyToAI(t *testing.T) {
 	if aiClient.req.Strategy != "strict" {
 		t.Fatalf("expected strict strategy, got %q", aiClient.req.Strategy)
 	}
+	if aiClient.req.ResultMode != "sections" {
+		t.Fatalf("expected default sections result mode, got %q", aiClient.req.ResultMode)
+	}
 	if len(aiClient.req.DocumentIDs) != 1 || aiClient.req.DocumentIDs[0] != documentID {
 		t.Fatalf("unexpected document ids: %#v", aiClient.req.DocumentIDs)
+	}
+}
+
+func TestSearchContracts_ReturnsBadRequestForInvalidResultMode(t *testing.T) {
+	api := NewAPI(noopLogger{}, nil, nil, nil)
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
+		"query_text":  "payment terms",
+		"result_mode": "documents",
+	}, api.SearchContracts)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+	body := decodeJSONBody(t, resp)
+	if body.Error.Code != "invalid_argument" {
+		t.Fatalf("expected invalid_argument, got %q", body.Error.Code)
+	}
+}
+
+func TestSearchContracts_CollapsesResultsByContract(t *testing.T) {
+	aiClient := &searchCapturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	useInMemoryReaders(api)
+	now := time.Now().UTC()
+
+	api.documents["doc-1"] = document{
+		ID:         "doc-1",
+		ContractID: "contract-1",
+		Filename:   "alpha-main.pdf",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	api.documents["doc-2"] = document{
+		ID:         "doc-2",
+		ContractID: "contract-1",
+		Filename:   "alpha-appendix.pdf",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	aiClientResp := []ai.SearchSectionsResultItem{
+		{DocumentID: "doc-1", PageNumber: 7, ChunkID: "12", Score: 0.61, SnippetText: "payment terms"},
+		{DocumentID: "doc-2", PageNumber: 1, ChunkID: "2", Score: 0.94, SnippetText: "payment terms with appendix"},
+	}
+	aiClient.searchResponse = ai.SearchSectionsResult{Items: aiClientResp}
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search", map[string]any{
+		"query_text":  "payment terms",
+		"result_mode": "contracts",
+		"limit":       3,
+	}, api.SearchContracts)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	if aiClient.req.ResultMode != "contracts" {
+		t.Fatalf("expected contracts result mode, got %q", aiClient.req.ResultMode)
+	}
+	if aiClient.req.Limit != 15 {
+		t.Fatalf("expected overfetch limit 15, got %d", aiClient.req.Limit)
+	}
+
+	var body contractSearchResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected one collapsed contract result, got %d", len(body.Items))
+	}
+	if body.Items[0].DocumentID != "doc-2" {
+		t.Fatalf("expected strongest document to represent the contract, got %q", body.Items[0].DocumentID)
 	}
 }
 
@@ -848,6 +1018,7 @@ func TestSearchContracts_PropagatesRequestContext(t *testing.T) {
 	// Arrange
 	aiClient := &searchCapturingAIClient{}
 	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	useInMemoryReaders(api)
 	documentID := "00000000-0000-4000-8000-000000000072"
 	api.documents[documentID] = document{
 		ID:        documentID,

@@ -15,6 +15,7 @@ import (
 	"legal-doc-intel/go-api/internal/checksum"
 	"legal-doc-intel/go-api/internal/db"
 	"legal-doc-intel/go-api/internal/externalcopy"
+	"legal-doc-intel/go-api/internal/models"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -64,6 +65,20 @@ type documentStore interface {
 type externalCopyClient interface {
 	Enabled() bool
 	CopyDocument(ctx context.Context, req externalcopy.CopyRequest) (externalcopy.CopyResult, error)
+}
+
+type contractReader interface {
+	List(ctx context.Context, limit, offset int) ([]models.ContractListRow, int, error)
+	Get(ctx context.Context, contractID string) (models.ContractRow, bool, error)
+}
+
+type documentReader interface {
+	List(ctx context.Context, filter models.DocumentsListFilter) ([]models.DocumentRow, int, error)
+	Get(ctx context.Context, documentID string) (models.DocumentRow, bool, error)
+	ListIDs(ctx context.Context) ([]string, error)
+	ResolveIDs(ctx context.Context, explicit []string) ([]string, error)
+	Exists(ctx context.Context, documentID string) (bool, error)
+	GetByIDs(ctx context.Context, documentIDs []string) (map[string]models.DocumentRow, error)
 }
 
 type noopAIClient struct{}
@@ -126,11 +141,13 @@ func (noopExternalCopyClient) CopyDocument(context.Context, externalcopy.CopyReq
 }
 
 type API struct {
-	logger slogLogger
-	ai     aiClient
-	store  documentStore
-	copier externalCopyClient
-	pg     *db.Postgres
+	logger         slogLogger
+	ai             aiClient
+	store          documentStore
+	copier         externalCopyClient
+	pg             *db.Postgres
+	contractsModel contractReader
+	documentsModel documentReader
 
 	mu          sync.RWMutex
 	contracts   map[string]contract
@@ -329,11 +346,16 @@ type checkResultsResponse struct {
 	Items   []checkResultItem `json:"items"`
 }
 
+type deleteChecksRequest struct {
+	CheckIDs []string `json:"check_ids"`
+}
+
 type contractSearchRequest struct {
 	QueryText   string   `json:"query_text"`
 	DocumentIDs []string `json:"document_ids,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
 	Strategy    string   `json:"strategy,omitempty"`
+	ResultMode  string   `json:"result_mode,omitempty"`
 }
 
 type contractSearchResultItem struct {
@@ -394,16 +416,28 @@ func NewAPI(logger slogLogger, aiClient aiClient, store documentStore, copier ex
 	}
 
 	return &API{
-		logger:      logger,
-		ai:          aiClient,
-		store:       store,
-		copier:      copier,
-		contracts:   map[string]contract{},
-		documents:   map[string]document{},
-		checks:      map[string]checkRun{},
-		idempotency: map[string]idempotencyRecord{},
-		copyEvents:  map[string]externalCopyEvent{},
+		logger:         logger,
+		ai:             aiClient,
+		store:          store,
+		copier:         copier,
+		contractsModel: nil,
+		documentsModel: nil,
+		contracts:      map[string]contract{},
+		documents:      map[string]document{},
+		checks:         map[string]checkRun{},
+		idempotency:    map[string]idempotencyRecord{},
+		copyEvents:     map[string]externalCopyEvent{},
 	}
+}
+
+// EnableInMemoryReadersForTesting wires read handlers to the in-memory state maps.
+// It is intended only for tests that construct an API without a database.
+func (a *API) EnableInMemoryReadersForTesting() {
+	if a == nil {
+		return
+	}
+	a.contractsModel = &inMemoryContractReader{api: a}
+	a.documentsModel = &inMemoryDocumentReader{api: a}
 }
 
 func mapDocument(doc document) documentResponse {
@@ -419,6 +453,25 @@ func mapDocument(doc document) documentResponse {
 		Checksum:   doc.Checksum,
 		CreatedAt:  doc.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:  doc.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func documentFromModel(doc models.DocumentRow) document {
+	return document{
+		ID:            doc.ID,
+		ContractID:    doc.ContractID,
+		SourceType:    doc.SourceType,
+		SourceRef:     doc.SourceRef,
+		Tags:          doc.Tags,
+		Filename:      doc.Filename,
+		MIMEType:      doc.MIMEType,
+		Status:        doc.Status,
+		Checksum:      doc.Checksum,
+		ExtractedText: doc.ExtractedText,
+		StorageKey:    doc.StorageKey,
+		StorageURI:    doc.StorageURI,
+		CreatedAt:     doc.CreatedAt,
+		UpdatedAt:     doc.UpdatedAt,
 	}
 }
 
