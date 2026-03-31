@@ -381,4 +381,65 @@ describe("ContractEditPage", () => {
       expect(screen.queryByText("Risk review")).not.toBeInTheDocument();
     });
   });
+
+  it("downloads the original file when the contract source is DOCX", async () => {
+    const originalCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement");
+    const appendChildSpy = vi.spyOn(document.body, "appendChild");
+    const removeChildSpy = vi.spyOn(document.body, "removeChild");
+    const downloadLink = originalCreateElement("a");
+    const clickSpy = vi.spyOn(downloadLink, "click");
+
+    createElementSpy.mockImplementation((tagName: string) => {
+      if (tagName.toLowerCase() === "a") {
+        return downloadLink;
+      }
+      return originalCreateElement(tagName);
+    });
+
+    apiMocks.getContract.mockResolvedValue({
+      id: "contract-1",
+      name: "Alpha",
+      file_count: 1,
+      files: [
+        {
+          id: "doc-1",
+          contract_id: "contract-1",
+          filename: "alpha.docx",
+          mime_type:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          status: "indexed",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    apiMocks.getDocumentText.mockResolvedValue({
+      document_id: "doc-1",
+      filename: "alpha.docx",
+      text: "Contract text",
+      has_text: true,
+    });
+    apiMocks.getDocumentContentUrl.mockReturnValue("http://localhost/file.docx");
+
+    renderPage();
+
+    await screen.findByText("Contract text");
+    fireEvent.click(screen.getByRole("button", { name: "Original" }));
+
+    expect(apiMocks.getDocumentContentUrl).toHaveBeenCalledWith("doc-1");
+    expect(downloadLink.href).toBe("http://localhost/file.docx");
+    expect(downloadLink.download).toBe("alpha.docx");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(appendChildSpy).toHaveBeenCalledWith(downloadLink);
+    expect(removeChildSpy).toHaveBeenCalledWith(downloadLink);
+    expect(screen.getByRole("heading", { name: "Contract Text" })).toBeVisible();
+
+    clickSpy.mockRestore();
+    createElementSpy.mockRestore();
+    appendChildSpy.mockRestore();
+    removeChildSpy.mockRestore();
+  });
 });

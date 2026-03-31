@@ -190,26 +190,6 @@ export function ContractsPage() {
     navigate(`/guidelines/run?${params.toString()}`);
   };
 
-  const compareWithSelected = (contractId: string) => {
-    const counterpartId = selectedContractIds.find((id) => id !== contractId);
-    if (!counterpartId) {
-      setError("Select another contract checkbox first, then click Compare.");
-      setSelectedContractIds([contractId]);
-      return;
-    }
-
-    const leftDocument = representativeDocumentByContract.get(counterpartId);
-    const rightDocument = representativeDocumentByContract.get(contractId);
-    if (!leftDocument || !rightDocument) {
-      setError("Cannot compare selected contracts because one of them has no comparable file.");
-      return;
-    }
-
-    setError(null);
-    const params = new URLSearchParams({ left: leftDocument.id, right: rightDocument.id });
-    navigate(`/contracts/compare?${params.toString()}`);
-  };
-
   const handleDelete = async (contract: ContractResponse) => {
     const confirmed = window.confirm(
       `Delete "${contract.name}" permanently?\n\nThis will hard-delete all files in the contract and related data.`
@@ -322,7 +302,7 @@ export function ContractsPage() {
                   <th>Files</th>
                   <th>Tags</th>
                   <th>Created</th>
-                  <th>Actions</th>
+                  <th aria-label="Delete actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -356,19 +336,13 @@ export function ContractsPage() {
                         <span className="muted">-</span>
                       )}
                     </td>
-                    <td>{formatEuropeanDateTime(contract.created_at)}</td>
+                    <td>
+                      <span className="contract-created-at">{formatEuropeanDateTime(contract.created_at)}</span>
+                    </td>
                     <td>
                       <button
                         type="button"
-                        className="secondary"
-                        disabled={!representativeDocumentByContract.has(contract.id)}
-                        onClick={() => compareWithSelected(contract.id)}
-                      >
-                        Compare
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
+                        className="danger contract-delete-button"
                         disabled={deletingContractId !== null}
                         onClick={() => void handleDelete(contract)}
                       >

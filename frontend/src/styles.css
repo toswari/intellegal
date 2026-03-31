@@ -589,6 +589,16 @@ th {
   letter-spacing: 0.05em;
 }
 
+.contract-created-at {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.contract-delete-button {
+  font-size: 0.88rem;
+  padding: 0.4rem 0.68rem;
+}
+
 .run-list {
   list-style: none;
   margin: 0;

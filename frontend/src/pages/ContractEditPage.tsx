@@ -185,6 +185,15 @@ function formatMimeTypeLabel(mimeType: string): string {
   }
 }
 
+function triggerDocumentDownload(file: DocumentResponse) {
+  const downloadLink = document.createElement("a");
+  downloadLink.href = apiClient.getDocumentContentUrl(file.id);
+  downloadLink.download = file.filename;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  document.body.removeChild(downloadLink);
+}
+
 async function toBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   let binary = "";
@@ -243,6 +252,12 @@ export function ContractEditPage() {
   const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
   const creationNotice = searchParams.get("notice")?.trim() ?? "";
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const singleDocxFile =
+    files.length === 1 &&
+    files[0]?.mime_type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ? files[0]
+      : null;
 
   const contractTextStyle = useMemo(
     () =>
@@ -1182,7 +1197,13 @@ export function ContractEditPage() {
                   type="button"
                   className={displayMode === "original" ? "is-active" : ""}
                   aria-pressed={displayMode === "original"}
-                  onClick={() => setDisplayMode("original")}
+                  onClick={() => {
+                    if (singleDocxFile) {
+                      triggerDocumentDownload(singleDocxFile);
+                      return;
+                    }
+                    setDisplayMode("original");
+                  }}
                 >
                   Original
                 </button>

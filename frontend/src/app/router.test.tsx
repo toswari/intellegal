@@ -161,6 +161,14 @@ describe("router", () => {
     expect(screen.getByRole("link", { name: "Run Guideline" })).toHaveAttribute("href", "/guidelines/run");
   });
 
+  it("keeps contract comparison in the bulk action bar instead of row actions", async () => {
+    renderAt("/contracts");
+
+    expect(await screen.findByRole("button", { name: "Compare Selected" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Compare" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Delete actions" })).toBeVisible();
+  });
+
   it("shows guideline check emoji and created date in the run list", () => {
     window.localStorage.setItem(
       "ldi.checkRuns",

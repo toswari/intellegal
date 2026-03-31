@@ -136,6 +136,18 @@ def test_search_sections_strict_normalizes_database_rows(monkeypatch) -> None:
     monkeypatch.setattr(db.psycopg, "connect", _fake_connect)
 
     store = db.ChunkSearchStore("postgresql://db")
+    helper_calls: list[dict[str, object]] = []
+
+    def _fake_find_document_ids_with_text(*, text_terms, document_ids):
+        helper_calls.append(
+            {
+                "text_terms": text_terms,
+                "document_ids": document_ids,
+            }
+        )
+        return []
+
+    monkeypatch.setattr(store, "find_document_ids_with_text", _fake_find_document_ids_with_text)
     result = store.search_sections_strict(
         query_text="payment terms",
         exclude_texts=["late fee", "termination"],
@@ -144,12 +156,20 @@ def test_search_sections_strict_normalizes_database_rows(monkeypatch) -> None:
     )
 
     assert connect_calls == [("postgresql://db", db.dict_row)]
+    assert helper_calls == [
+        {
+            "text_terms": ["late fee", "termination"],
+            "document_ids": ["doc-1"],
+        }
+    ]
     assert len(cursor.execute_calls) == 1
     query, params = cursor.execute_calls[0]
     assert "websearch_to_tsquery" in query
+    assert "unnest(COALESCE(%(excluded_document_ids)s::text[], ARRAY[]::text[]))" in query
     assert params == {
         "query_text": "payment terms",
         "excluded_terms": ["late fee", "termination"],
+        "excluded_document_ids": None,
         "document_ids": ["doc-1"],
         "limit": 1,
     }
@@ -169,3 +189,36 @@ def test_search_sections_strict_normalizes_database_rows(monkeypatch) -> None:
             "text": "",
         },
     ]
+
+
+def test_find_document_ids_with_text_returns_matching_documents(monkeypatch) -> None:
+    cursor = _FakeCursor(
+        fetchall_result=[
+            {"document_id": "doc-1"},
+            {"document_id": "doc-3"},
+            {"document_id": None},
+        ]
+    )
+    connect_calls: list[tuple[str, object]] = []
+
+    def _fake_connect(database_url: str, row_factory=None):
+        connect_calls.append((database_url, row_factory))
+        return _FakeConnection(cursor)
+
+    monkeypatch.setattr(db.psycopg, "connect", _fake_connect)
+
+    store = db.ChunkSearchStore("postgresql://db")
+    result = store.find_document_ids_with_text(
+        text_terms=["Estonia", "late fee"],
+        document_ids=["doc-1", "", "doc-3"],
+    )
+
+    assert connect_calls == [("postgresql://db", db.dict_row)]
+    assert len(cursor.execute_calls) == 1
+    query, params = cursor.execute_calls[0]
+    assert "SELECT DISTINCT c.document_id" in query
+    assert params == {
+        "document_ids": ["doc-1", "doc-3"],
+        "terms": ["estonia", "late fee"],
+    }
+    assert result == ["doc-1", "doc-3"]

@@ -413,6 +413,7 @@ export function GuidelinesPage() {
               <ul className="run-list">
                 {trackedRuns.map((item) => {
                   const isSelected = selectedRunIds.includes(item.check_id);
+                  const contractPreview = getRunContractPreview(item, contractIdsByDocumentId, contractNamesById);
 
                   return (
                     <li key={item.check_id}>
@@ -455,6 +456,7 @@ export function GuidelinesPage() {
                               </span>
                               <span>{formatRunLabel(item)}</span>
                             </span>
+                            {contractPreview ? <small>{contractPreview}</small> : null}
                             <small>Created {formatEuropeanDateTime(item.requested_at)}</small>
                           </span>
                         </button>
@@ -610,6 +612,44 @@ export function GuidelinesPage() {
 
 function formatRunLabel(item: StoredCheckRun) {
   return item.rule_name?.trim() || "Guideline run";
+}
+
+function getRunContractPreview(
+  item: StoredCheckRun,
+  contractIdsByDocumentId: Record<string, string>,
+  contractNamesById: Record<string, string>
+) {
+  const contractNames = Array.from(
+    new Set(
+      (item.document_ids ?? [])
+        .map((documentId) => contractIdsByDocumentId[documentId])
+        .filter((contractId): contractId is string => Boolean(contractId))
+        .map((contractId) => contractNamesById[contractId])
+        .filter((contractName): contractName is string => Boolean(contractName?.trim()))
+    )
+  );
+
+  if (contractNames.length === 0) {
+    return "";
+  }
+
+  const [firstContractName, ...otherContractNames] = contractNames;
+  const preview = truncateTextStart(firstContractName, 42);
+
+  if (otherContractNames.length === 0) {
+    return `Contract: ${preview}`;
+  }
+
+  return `Contracts: ${preview} +${otherContractNames.length} more`;
+}
+
+function truncateTextStart(value: string, maxLength: number) {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
 function isMissingCheckError(err: unknown) {

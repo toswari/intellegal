@@ -15,6 +15,42 @@ class ChunkSearchStore:
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
 
+    def find_document_ids_with_text(
+        self,
+        *,
+        text_terms: list[str] | None = None,
+        document_ids: list[str] | None,
+    ) -> list[str]:
+        ids = [doc_id for doc_id in (document_ids or []) if doc_id]
+        terms = [term.strip().lower() for term in (text_terms or []) if term and term.strip()]
+        if not terms:
+            return []
+
+        query = """
+            SELECT DISTINCT c.document_id
+            FROM indexed_document_chunks AS c
+            WHERE (%(document_ids)s::text[] IS NULL OR c.document_id = ANY(%(document_ids)s))
+              AND EXISTS (
+                  SELECT 1
+                  FROM unnest(%(terms)s::text[]) AS included(term)
+                  WHERE position(included.term in lower(c.snippet_text)) > 0
+              )
+            ORDER BY c.document_id ASC
+        """
+
+        with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    query,
+                    {
+                        "document_ids": ids if ids else None,
+                        "terms": terms,
+                    },
+                )
+                rows = cur.fetchall()
+
+        return [str(row.get("document_id") or "") for row in rows if str(row.get("document_id") or "")]
+
     def upsert_document_chunks(
         self,
         *,
@@ -95,8 +131,8 @@ class ChunkSearchStore:
                 WHERE (%(document_ids)s::text[] IS NULL OR c.document_id = ANY(%(document_ids)s))
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM unnest(COALESCE(%(excluded_terms)s::text[], ARRAY[]::text[])) AS excluded(term)
-                      WHERE position(excluded.term in lower(c.snippet_text)) > 0
+                      FROM unnest(COALESCE(%(excluded_document_ids)s::text[], ARRAY[]::text[])) AS excluded(document_id)
+                      WHERE excluded.document_id = c.document_id
                   )
                   AND (
                       NOT i.has_positive_query
@@ -118,11 +154,16 @@ class ChunkSearchStore:
 
         with psycopg.connect(self._database_url, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
+                excluded_document_ids = self.find_document_ids_with_text(
+                    text_terms=excluded_terms,
+                    document_ids=ids if ids else None,
+                )
                 cur.execute(
                     query,
                     {
                         "query_text": query_text,
                         "excluded_terms": excluded_terms if excluded_terms else None,
+                        "excluded_document_ids": excluded_document_ids if excluded_document_ids else None,
                         "document_ids": ids if ids else None,
                         "limit": max(1, limit),
                     },

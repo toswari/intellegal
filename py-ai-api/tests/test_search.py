@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import pytest
 
-from py_ai_api.search import SearchPipeline
+from py_ai_api.search import SearchPipeline, _parse_query_text
 
 pytestmark = pytest.mark.unit
+
+
+def test_parse_query_text_supports_space_separated_exclusion() -> None:
+    positive_query, excluded_terms = _parse_query_text("! Estonia")
+
+    assert positive_query == ""
+    assert excluded_terms == ["estonia"]
+
+
+def test_parse_query_text_supports_mixed_inline_and_space_separated_exclusions() -> None:
+    positive_query, excluded_terms = _parse_query_text('payment ! late !"governing law"')
+
+    assert positive_query == "payment"
+    assert excluded_terms == ["late", "governing law"]
 
 
 class _FakeQdrant:
@@ -36,6 +50,7 @@ class _FakeQdrant:
 class _FakeChunkStore:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.find_document_ids_calls: list[dict[str, object]] = []
 
     def search_sections_strict(
         self,
@@ -63,20 +78,38 @@ class _FakeChunkStore:
             }
         ]
 
+    def find_document_ids_with_text(
+        self,
+        *,
+        text_terms: list[str] | None = None,
+        document_ids: list[str] | None,
+    ):
+        self.find_document_ids_calls.append(
+            {
+                "text_terms": text_terms,
+                "document_ids": document_ids,
+            }
+        )
+        if text_terms == ["late"]:
+            return ["doc-1"]
+        return []
+
 
 def test_search_sections_semantic_strategy_uses_qdrant() -> None:
     qdrant = _FakeQdrant()
-    pipeline = SearchPipeline(qdrant=qdrant, vector_size=8)
+    chunk_store = _FakeChunkStore()
+    pipeline = SearchPipeline(qdrant=qdrant, vector_size=8, chunk_store=chunk_store)
 
     result = pipeline.search_sections(query_text="payment terms !late", document_ids=["doc-1"], limit=5)
 
     assert result.diagnostics["strategy"] == "qdrant_vector"
     assert result.diagnostics["excluded_terms"] == ["late"]
-    assert result.diagnostics["filtered_out_count"] == 1
-    assert len(result.items) == 1
-    assert result.items[0].document_id == "doc-1"
+    assert result.diagnostics["excluded_document_count"] == 1
+    assert result.diagnostics["filtered_out_count"] == 2
+    assert len(result.items) == 0
     assert qdrant.called is True
     assert qdrant.calls == [{"query_vector": qdrant.calls[0]["query_vector"], "document_ids": ["doc-1"], "limit": 20}]
+    assert chunk_store.find_document_ids_calls == [{"text_terms": ["late"], "document_ids": ["doc-1"]}]
 
 
 def test_search_sections_strict_strategy_uses_chunk_store() -> None:

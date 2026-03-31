@@ -35,12 +35,21 @@ def _parse_query_text(query_text: str) -> tuple[str, list[str]]:
 
     positive_terms: list[str] = []
     excluded_terms: list[str] = []
+    exclude_next = False
     for token in tokens:
         normalized = token.strip()
         if not normalized:
             continue
+        if normalized == "!":
+            exclude_next = True
+            continue
         if normalized.startswith("!") and len(normalized) > 1:
             excluded_terms.append(normalized[1:].strip().lower())
+            exclude_next = False
+            continue
+        if exclude_next:
+            excluded_terms.append(normalized.lower())
+            exclude_next = False
             continue
         positive_terms.append(normalized)
 
@@ -52,6 +61,16 @@ def _contains_excluded_text(text: str, excluded_terms: list[str]) -> bool:
     if not normalized or not excluded_terms:
         return False
     return any(term in normalized for term in excluded_terms)
+
+
+def _filter_excluded_documents(
+    chunks: list[dict[str, Any]],
+    *,
+    excluded_document_ids: set[str],
+) -> list[dict[str, Any]]:
+    if not excluded_document_ids:
+        return chunks
+    return [chunk for chunk in chunks if str(chunk.get("document_id") or "") not in excluded_document_ids]
 
 
 def _collapse_to_documents(
@@ -192,12 +211,27 @@ class SearchPipeline:
             )
 
         vector = self._embeddings.embed(positive_query)
+        excluded_document_ids: set[str] = set()
+        if excluded_terms and self._chunk_store is not None:
+            excluded_document_ids = set(
+                self._chunk_store.find_document_ids_with_text(
+                    text_terms=excluded_terms,
+                    document_ids=document_ids,
+                )
+            )
         chunks = self._qdrant.search_chunks(
             query_vector=vector,
             document_ids=document_ids,
             limit=max(candidate_limit, requested_limit * (4 if excluded_terms else 1)),
         )
-        filtered_chunks = [chunk for chunk in chunks if not _contains_excluded_text(str(chunk.get("text") or ""), excluded_terms)]
+        filtered_chunks = _filter_excluded_documents(
+            [
+                chunk
+                for chunk in chunks
+                if not _contains_excluded_text(str(chunk.get("text") or ""), excluded_terms)
+            ],
+            excluded_document_ids=excluded_document_ids,
+        )
         items = [
             SearchSectionsResultItem(
                 document_id=chunk["document_id"],
@@ -217,6 +251,7 @@ class SearchPipeline:
             diagnostics={
                 "query_length": len(query),
                 "excluded_terms": excluded_terms,
+                "excluded_document_count": len(excluded_document_ids),
                 "filtered_out_count": max(0, len(chunks) - len(filtered_chunks)),
                 "result_count": len(items),
                 "result_mode": result_mode,
