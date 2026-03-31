@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strconv"
@@ -52,6 +53,13 @@ func (a *API) CreateContract(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.contracts[item.ID] = item
 	a.mu.Unlock()
+	if err := a.persistContract(r.Context(), item); err != nil {
+		a.mu.Lock()
+		delete(a.contracts, item.ID)
+		a.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to persist contract", true, nil)
+		return
+	}
 
 	a.emitAuditEvent("contract.created", "contract", item.ID, map[string]any{
 		"name":        item.Name,
@@ -148,10 +156,9 @@ func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	item, ok := a.contracts[contractID]
 	if !ok {
+		a.mu.Unlock()
 		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
 		return
 	}
@@ -159,6 +166,7 @@ func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
+			a.mu.Unlock()
 			writeError(w, http.StatusBadRequest, "invalid_argument", "name is required", false, nil)
 			return
 		}
@@ -168,6 +176,7 @@ func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 	if req.Tags != nil {
 		tags, err := normalizeTags(*req.Tags)
 		if err != nil {
+			a.mu.Unlock()
 			writeError(w, http.StatusBadRequest, "invalid_argument", err.Error(), false, nil)
 			return
 		}
@@ -176,17 +185,23 @@ func (a *API) UpdateContract(w http.ResponseWriter, r *http.Request) {
 
 	item.UpdatedAt = time.Now().UTC()
 	a.contracts[contractID] = item
-	a.emitAuditEvent("contract.updated", "contract", contractID, map[string]any{
-		"name": item.Name,
-		"tags": item.Tags,
-	})
-
 	files := make([]documentResponse, 0, len(item.FileIDs))
 	for _, fileID := range item.FileIDs {
 		if doc, exists := a.documents[fileID]; exists {
 			files = append(files, mapDocument(doc))
 		}
 	}
+	a.mu.Unlock()
+
+	if err := a.persistContract(r.Context(), item); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to persist contract", true, nil)
+		return
+	}
+	a.emitAuditEvent("contract.updated", "contract", contractID, map[string]any{
+		"name": item.Name,
+		"tags": item.Tags,
+	})
+
 	writeJSON(w, http.StatusOK, mapContract(item, files))
 }
 
@@ -219,10 +234,33 @@ func (a *API) DeleteContract(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := a.deleteContractState(r.Context(), contractID); err != nil {
+		a.logger.Error("contract metadata delete failed", "contract_id", contractID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete contract metadata", true, nil)
+		return
+	}
+
 	a.mu.Lock()
 	delete(a.contracts, contractID)
+	deletedChecks := make(map[string]struct{})
 	for _, fileID := range item.FileIDs {
 		delete(a.documents, fileID)
+		for checkID, run := range a.checks {
+			if containsString(run.DocumentIDs, fileID) {
+				delete(a.checks, checkID)
+				deletedChecks[checkID] = struct{}{}
+			}
+		}
+		for eventID, event := range a.copyEvents {
+			if event.DocumentID == fileID {
+				delete(a.copyEvents, eventID)
+			}
+		}
+	}
+	for key, rec := range a.idempotency {
+		if _, ok := deletedChecks[rec.CheckID]; ok {
+			delete(a.idempotency, key)
+		}
 	}
 	a.mu.Unlock()
 	a.emitAuditEvent("contract.deleted", "contract", contractID, map[string]any{"file_count": len(item.FileIDs)})
@@ -263,15 +301,15 @@ func (a *API) ReorderContractFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	item, ok := a.contracts[contractID]
 	if !ok {
+		a.mu.Unlock()
 		writeError(w, http.StatusNotFound, "not_found", "contract not found", false, nil)
 		return
 	}
 
 	if len(req.FileIDs) != len(item.FileIDs) {
+		a.mu.Unlock()
 		writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids must contain all contract file ids exactly once", false, nil)
 		return
 	}
@@ -283,10 +321,12 @@ func (a *API) ReorderContractFiles(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]struct{}, len(req.FileIDs))
 	for _, id := range req.FileIDs {
 		if _, ok := expected[id]; !ok {
+			a.mu.Unlock()
 			writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids contains an unknown file id", false, nil)
 			return
 		}
 		if _, ok := seen[id]; ok {
+			a.mu.Unlock()
 			writeError(w, http.StatusBadRequest, "invalid_argument", "file_ids must not contain duplicates", false, nil)
 			return
 		}
@@ -296,13 +336,25 @@ func (a *API) ReorderContractFiles(w http.ResponseWriter, r *http.Request) {
 	item.FileIDs = append([]string{}, req.FileIDs...)
 	item.UpdatedAt = time.Now().UTC()
 	a.contracts[contractID] = item
-	a.emitAuditEvent("contract.files_reordered", "contract", contractID, map[string]any{"file_count": len(item.FileIDs)})
-
 	files := make([]documentResponse, 0, len(item.FileIDs))
 	for _, fileID := range item.FileIDs {
 		if doc, exists := a.documents[fileID]; exists {
 			files = append(files, mapDocument(doc))
 		}
 	}
+	a.mu.Unlock()
+	if err := a.persistContract(r.Context(), item); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to persist contract", true, nil)
+		return
+	}
+	for _, fileID := range item.FileIDs {
+		a.mu.RLock()
+		doc, exists := a.documents[fileID]
+		a.mu.RUnlock()
+		if exists {
+			_ = a.persistDocument(context.Background(), doc)
+		}
+	}
+	a.emitAuditEvent("contract.files_reordered", "contract", contractID, map[string]any{"file_count": len(item.FileIDs)})
 	writeJSON(w, http.StatusOK, mapContract(item, files))
 }

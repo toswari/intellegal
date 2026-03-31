@@ -25,13 +25,27 @@ apply_file() {
   cat "$file" | sh -c "$PSQL_BASE"
 }
 
+normalize_version() {
+  version="$1"
+  normalized=$(printf '%s' "$version" | sed 's/^0*//')
+  if [ -z "$normalized" ]; then
+    normalized=0
+  fi
+  printf '%s\n' "$normalized"
+}
+
+version_glob() {
+  version="$1"
+  printf '%04d\n' "$version"
+}
+
 ensure_table
 
 case "$ACTION" in
   up)
     for file in $(ls "$MIGRATIONS_DIR"/*.up.sql 2>/dev/null | sort); do
       base=$(basename "$file")
-      version=${base%%_*}
+      version=$(normalize_version "${base%%_*}")
       if applied_versions | grep -qx "$version"; then
         echo "Skipping $base (already applied)"
         continue
@@ -54,7 +68,8 @@ SQL
       exit 0
     fi
 
-    file=$(ls "$MIGRATIONS_DIR"/"$version"_*.down.sql 2>/dev/null | head -n 1 || true)
+      version_prefix=$(version_glob "$version")
+      file=$(ls "$MIGRATIONS_DIR"/"$version_prefix"_*.down.sql 2>/dev/null | head -n 1 || true)
     if [ -z "$file" ]; then
       echo "Down migration for version $version not found"
       exit 1

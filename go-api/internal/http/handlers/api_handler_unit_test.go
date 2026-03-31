@@ -31,6 +31,7 @@ type stubDocumentStore struct {
 
 type searchCapturingAIClient struct {
 	req ai.SearchSectionsRequest
+	ctx context.Context
 }
 
 func (s *searchCapturingAIClient) AnalyzeClause(context.Context, ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
@@ -57,7 +58,8 @@ func (s *searchCapturingAIClient) Index(context.Context, ai.IndexRequest) (ai.In
 	return ai.IndexResult{}, nil
 }
 
-func (s *searchCapturingAIClient) SearchSections(_ context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+func (s *searchCapturingAIClient) SearchSections(ctx context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
+	s.ctx = ctx
 	s.req = req
 	return ai.SearchSectionsResult{
 		Items: []ai.SearchSectionsResultItem{
@@ -572,6 +574,89 @@ func TestDeleteDocumentKeepsMetadataWhenStorageDeleteFails(t *testing.T) {
 	}
 }
 
+func TestDeleteContractRemovesRelatedChecksAndCopyEvents(t *testing.T) {
+	store := &stubDocumentStore{}
+	api := NewAPI(noopLogger{}, nil, store, nil)
+
+	contractID := "00000000-0000-4000-8000-000000000061"
+	firstDocumentID := "00000000-0000-4000-8000-000000000062"
+	secondDocumentID := "00000000-0000-4000-8000-000000000063"
+	checkID := "00000000-0000-4000-8000-000000000064"
+
+	api.contracts[contractID] = contract{
+		ID:        contractID,
+		Name:      "MSA",
+		FileIDs:   []string{firstDocumentID, secondDocumentID},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	api.documents[firstDocumentID] = document{
+		ID:         firstDocumentID,
+		ContractID: contractID,
+		Filename:   "contract-a.pdf",
+		MIMEType:   "application/pdf",
+		StorageKey: "documents/contract-a.pdf",
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	api.documents[secondDocumentID] = document{
+		ID:         secondDocumentID,
+		ContractID: contractID,
+		Filename:   "contract-b.pdf",
+		MIMEType:   "application/pdf",
+		StorageKey: "documents/contract-b.pdf",
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	api.checks[checkID] = checkRun{
+		CheckID:     checkID,
+		Status:      checkStatusCompleted,
+		CheckType:   checkTypeClause,
+		RequestedAt: time.Now().UTC(),
+		DocumentIDs: []string{firstDocumentID, secondDocumentID},
+	}
+	api.idempotency[checkTypeClause+":idem-contract-delete"] = idempotencyRecord{
+		PayloadHash: "hash",
+		CheckID:     checkID,
+	}
+	api.copyEvents["event-contract-1"] = externalCopyEvent{ID: "event-contract-1", DocumentID: firstDocumentID}
+	api.copyEvents["event-contract-2"] = externalCopyEvent{ID: "event-contract-2", DocumentID: secondDocumentID}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/contracts/"+contractID, nil)
+	req.SetPathValue("contract_id", contractID)
+	w := httptest.NewRecorder()
+
+	api.DeleteContract(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+	if len(store.deletedKeys) != 2 {
+		t.Fatalf("expected two storage deletes, got %#v", store.deletedKeys)
+	}
+	if _, ok := api.contracts[contractID]; ok {
+		t.Fatal("expected contract to be removed")
+	}
+	if _, ok := api.documents[firstDocumentID]; ok {
+		t.Fatal("expected first document to be removed")
+	}
+	if _, ok := api.documents[secondDocumentID]; ok {
+		t.Fatal("expected second document to be removed")
+	}
+	if _, ok := api.checks[checkID]; ok {
+		t.Fatal("expected related check to be removed")
+	}
+	if _, ok := api.idempotency[checkTypeClause+":idem-contract-delete"]; ok {
+		t.Fatal("expected related idempotency key to be removed")
+	}
+	if _, ok := api.copyEvents["event-contract-1"]; ok {
+		t.Fatal("expected first copy event to be removed")
+	}
+	if _, ok := api.copyEvents["event-contract-2"]; ok {
+		t.Fatal("expected second copy event to be removed")
+	}
+}
+
 func TestListDocumentsFiltersByTags(t *testing.T) {
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
@@ -690,6 +775,36 @@ func TestSearchContractsPassesStrategyToAI(t *testing.T) {
 	}
 	if len(aiClient.req.DocumentIDs) != 1 || aiClient.req.DocumentIDs[0] != documentID {
 		t.Fatalf("unexpected document ids: %#v", aiClient.req.DocumentIDs)
+	}
+}
+
+func TestSearchContractsPropagatesRequestContext(t *testing.T) {
+	aiClient := &searchCapturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	documentID := "00000000-0000-4000-8000-000000000072"
+	api.documents[documentID] = document{
+		ID:        documentID,
+		Filename:  "contract.pdf",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/contracts/search", bytes.NewReader([]byte(`{
+		"query_text":"payment terms"
+	}`)))
+	req.Header.Set("Content-Type", "application/json")
+	type ctxKey string
+	ctx := context.WithValue(req.Context(), ctxKey("trace_id"), "trace-123")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	api.SearchContracts(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := aiClient.ctx.Value(ctxKey("trace_id")); got != "trace-123" {
+		t.Fatalf("expected propagated request context value, got %#v", got)
 	}
 }
 

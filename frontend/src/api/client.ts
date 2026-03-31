@@ -407,7 +407,7 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      const payload = (await response.json()) as ErrorEnvelope;
+      const payload = await this.readErrorEnvelope(response);
       throw new ApiError(response.status, payload);
     }
 
@@ -416,6 +416,35 @@ export class ApiClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private async readErrorEnvelope(response: Response): Promise<ErrorEnvelope> {
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (contentType.toLowerCase().includes("application/json")) {
+      try {
+        return (await response.json()) as ErrorEnvelope;
+      } catch {
+        // Fall through to the plain-text fallback below.
+      }
+    }
+
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const text = (await response.text()).trim();
+      if (text) {
+        message = text;
+      }
+    } catch {
+      // Use the generic fallback message.
+    }
+
+    return {
+      error: {
+        code: "http_error",
+        message,
+        retriable: response.status >= 500
+      }
+    };
   }
 }
 

@@ -148,6 +148,12 @@ func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := a.deleteDocumentState(r.Context(), documentID); err != nil {
+		a.logger.Error("document metadata delete failed", "document_id", documentID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete document metadata", true, nil)
+		return
+	}
+
 	a.mu.Lock()
 	if _, exists := a.documents[documentID]; !exists {
 		a.mu.Unlock()
@@ -192,6 +198,15 @@ func (a *API) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.mu.Unlock()
+
+	if doc.ContractID != "" {
+		a.mu.RLock()
+		item, exists := a.contracts[doc.ContractID]
+		a.mu.RUnlock()
+		if exists {
+			_ = a.persistContract(context.Background(), item)
+		}
+	}
 
 	a.emitAuditEvent("document.deleted", "document", documentID, map[string]any{
 		"checks_deleted":      len(deletedChecks),
@@ -349,6 +364,31 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 		a.contracts[contractID] = item
 	}
 	a.mu.Unlock()
+	if err := a.persistDocument(ctx, doc); err != nil {
+		a.mu.Lock()
+		delete(a.documents, docID)
+		if contractID != "" {
+			item := a.contracts[contractID]
+			filtered := make([]string, 0, len(item.FileIDs))
+			for _, id := range item.FileIDs {
+				if id != docID {
+					filtered = append(filtered, id)
+				}
+			}
+			item.FileIDs = filtered
+			a.contracts[contractID] = item
+		}
+		a.mu.Unlock()
+		return document{}, errors.New("failed to persist document")
+	}
+	if contractID != "" {
+		a.mu.RLock()
+		item := a.contracts[contractID]
+		a.mu.RUnlock()
+		if err := a.persistContract(ctx, item); err != nil {
+			return document{}, errors.New("failed to persist document")
+		}
+	}
 
 	a.emitAuditEvent("document.created", "document", docID, map[string]any{
 		"source_type": sourceType,
@@ -397,6 +437,9 @@ func (a *API) createDocumentFromRequest(ctx context.Context, req createDocumentR
 	a.mu.Lock()
 	a.documents[docID] = doc
 	a.mu.Unlock()
+	if err := a.persistDocument(ctx, doc); err != nil {
+		return document{}, errors.New("failed to persist document")
+	}
 
 	doc = a.markDocumentIndexed(docID)
 	a.emitAuditEvent("document.indexed", "document", docID, map[string]any{"status": doc.Status})
@@ -430,24 +473,24 @@ func combineExtractedText(result ai.ExtractResult) string {
 
 func (a *API) markDocumentFailed(documentID string, err error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	doc := a.documents[documentID]
 	doc.Status = documentStatusFailed
 	doc.UpdatedAt = time.Now().UTC()
 	a.documents[documentID] = doc
+	a.mu.Unlock()
 	a.logger.Error("document processing failed", "document_id", documentID, "error", err)
 	a.emitAuditEvent("document.failed", "document", documentID, map[string]any{"error": err.Error()})
+	_ = a.persistDocument(context.Background(), doc)
 }
 
 func (a *API) markDocumentIndexed(documentID string) document {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	doc := a.documents[documentID]
 	doc.Status = documentStatusIndexed
 	doc.UpdatedAt = time.Now().UTC()
 	a.documents[documentID] = doc
+	a.mu.Unlock()
+	_ = a.persistDocument(context.Background(), doc)
 	return doc
 }
 
@@ -477,7 +520,11 @@ func (a *API) enqueueExternalCopy(doc document, requestID string) {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+	event := a.copyEvents[eventID]
 	a.mu.Unlock()
+	if err := a.persistCopyEvent(context.Background(), event); err != nil {
+		a.logger.Error("copy event persist failed", "event_id", eventID, "error", err)
+	}
 
 	a.emitAuditEvent("external_copy.queued", "document", doc.ID, map[string]any{"event_id": eventID})
 	go a.runExternalCopy(eventID, doc, requestID)
@@ -506,6 +553,9 @@ func (a *API) runExternalCopy(eventID string, doc document, requestID string) {
 		}
 		a.copyEvents[eventID] = event
 		a.mu.Unlock()
+		if persistErr := a.persistCopyEvent(context.Background(), event); persistErr != nil {
+			a.logger.Error("copy event persist failed", "event_id", eventID, "error", persistErr)
+		}
 		a.emitAuditEvent("external_copy.failed", "document", doc.ID, map[string]any{
 			"event_id": eventID,
 			"error":    event.ErrorMessage,
@@ -520,6 +570,9 @@ func (a *API) runExternalCopy(eventID string, doc document, requestID string) {
 	event.ResponseBody = result.Body
 	a.copyEvents[eventID] = event
 	a.mu.Unlock()
+	if err := a.persistCopyEvent(context.Background(), event); err != nil {
+		a.logger.Error("copy event persist failed", "event_id", eventID, "error", err)
+	}
 
 	a.emitAuditEvent("external_copy.succeeded", "document", doc.ID, map[string]any{
 		"event_id": eventID,

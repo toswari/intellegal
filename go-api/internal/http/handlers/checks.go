@@ -197,7 +197,7 @@ func (a *API) SearchContracts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := a.ai.SearchSections(context.Background(), ai.SearchSectionsRequest{
+	result, err := a.ai.SearchSections(r.Context(), ai.SearchSectionsRequest{
 		JobID:       newUUID(),
 		RequestID:   middleware.GetRequestID(r.Context()),
 		QueryText:   queryText,
@@ -276,6 +276,13 @@ func (a *API) createCheck(r *http.Request, checkType string, payload any, docume
 
 	if idempotencyKey != "" {
 		a.idempotency[checkType+":"+idempotencyKey] = idempotencyRecord{PayloadHash: payloadHash, CheckID: checkID}
+	}
+	if err := a.persistCheckCreated(r.Context(), a.checks[checkID], payload, idempotencyKey, payloadHash); err != nil {
+		delete(a.checks, checkID)
+		if idempotencyKey != "" {
+			delete(a.idempotency, checkType+":"+idempotencyKey)
+		}
+		return "", "", false, fmt.Errorf("persist check: %w", err)
 	}
 	a.emitAuditEvent("check.created", "check", checkID, map[string]any{
 		"check_type":     checkType,
@@ -457,14 +464,15 @@ func mapAnalysisItems(documentIDs []string, analysisItems []ai.AnalysisResultIte
 
 func (a *API) markCheckRunning(checkID string) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	run, ok := a.checks[checkID]
 	if !ok {
+		a.mu.Unlock()
 		return false
 	}
 	run.Status = checkStatusRunning
 	a.checks[checkID] = run
+	a.mu.Unlock()
+	_ = a.persistCheckState(context.Background(), run)
 	return true
 }
 
@@ -472,13 +480,13 @@ func (a *API) markCheckCompleted(checkID string, items []checkResultItem) {
 	now := time.Now().UTC()
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	run := a.checks[checkID]
 	run.Status = checkStatusCompleted
 	run.FinishedAt = &now
 	run.Items = items
 	a.checks[checkID] = run
+	a.mu.Unlock()
+	_ = a.persistCheckState(context.Background(), run)
 	a.emitAuditEvent("check.completed", "check", checkID, map[string]any{"item_count": len(items)})
 }
 
@@ -486,13 +494,13 @@ func (a *API) markCheckFailed(checkID string, err error) {
 	now := time.Now().UTC()
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	run := a.checks[checkID]
 	run.Status = checkStatusFailed
 	run.FinishedAt = &now
 	run.FailureReason = err.Error()
 	a.checks[checkID] = run
+	a.mu.Unlock()
+	_ = a.persistCheckState(context.Background(), run)
 	a.logger.Error("check execution failed", "check_id", checkID, "error", err)
 	a.emitAuditEvent("check.failed", "check", checkID, map[string]any{"error": err.Error()})
 }

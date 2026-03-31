@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"legal-doc-intel/go-api/internal/ai"
+	"legal-doc-intel/go-api/internal/db"
 	"legal-doc-intel/go-api/internal/externalcopy"
 
 	"github.com/go-chi/chi/v5"
@@ -134,6 +135,7 @@ type API struct {
 	ai     aiClient
 	store  documentStore
 	copier externalCopyClient
+	pg     *db.Postgres
 
 	mu          sync.RWMutex
 	contracts   map[string]contract

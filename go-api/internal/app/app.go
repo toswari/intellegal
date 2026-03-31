@@ -53,6 +53,10 @@ func New(cfg config.Config, logger logging.Logger) (*App, error) {
 	aiClient := ai.NewClient(cfg.InternalAIBaseURL, cfg.InternalServiceToken, cfg.InternalAITimeout)
 	copyClient := externalcopy.NewClient(cfg.ExternalCopyBaseURL, cfg.ExternalCopyToken, cfg.ExternalCopyTimeout, cfg.ExternalCopyRetries)
 	api := handlers.NewAPI(logger, aiClient, store, copyClient)
+	if err := api.UsePostgres(pg); err != nil {
+		_ = pg.Close()
+		return nil, fmt.Errorf("initialize persisted API state: %w", err)
+	}
 	router := httprouter.New(logger, api, func(ctx context.Context) error {
 		pingCtx, cancel := context.WithTimeout(ctx, cfg.DatabasePingTimeout)
 		defer cancel()

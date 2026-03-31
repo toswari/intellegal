@@ -42,3 +42,10 @@ func (p *Postgres) PingWithTimeout(timeout time.Duration) error {
 	defer cancel()
 	return p.Ping(ctx)
 }
+
+func (p *Postgres) DB() *sql.DB {
+	if p == nil {
+		return nil
+	}
+	return p.conn
+}

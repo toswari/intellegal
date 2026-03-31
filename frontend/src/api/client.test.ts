@@ -95,6 +95,19 @@ describe("ApiClient", () => {
     ).rejects.toEqual(expect.any(ApiError));
   });
 
+  it("falls back gracefully for non-JSON error responses", async () => {
+    const fetchFn = vi.fn(async () => new Response("<html>gateway down</html>", { status: 502 }));
+    const client = new ApiClient("http://localhost:8080", fetchFn as typeof fetch);
+
+    await expect(client.listDocuments()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 502,
+      code: "http_error",
+      message: "<html>gateway down</html>",
+      retriable: true
+    });
+  });
+
   it("posts LLM review checks to the dedicated guideline endpoint", async () => {
     const fetchFn = vi.fn(async () =>
       new Response(
