@@ -15,6 +15,24 @@ async function toBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+function deriveContractNameFromFile(file: File | undefined): string {
+  if (!file) {
+    return "";
+  }
+
+  const trimmedName = file.name.trim();
+  if (trimmedName.length === 0) {
+    return "";
+  }
+
+  const extensionIndex = trimmedName.lastIndexOf(".");
+  if (extensionIndex <= 0) {
+    return trimmedName;
+  }
+
+  return trimmedName.slice(0, extensionIndex).trim() || trimmedName;
+}
+
 export function NewContractPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -73,12 +91,14 @@ export function NewContractPage() {
   const uploadDocument = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!contractName.trim()) {
-      setUploadError("Contract name is required.");
-      return;
-    }
+    const resolvedContractName = contractName.trim() || deriveContractNameFromFile(files[0]);
+
     if (files.length === 0) {
       setUploadError("Select one or more files first.");
+      return;
+    }
+    if (!resolvedContractName) {
+      setUploadError("Contract name could not be derived from the selected file.");
       return;
     }
     for (const file of files) {
@@ -104,7 +124,7 @@ export function NewContractPage() {
       );
       const contract = await apiClient.createContract(
         {
-          name: contractName.trim(),
+          name: resolvedContractName,
           source_type: sourceType,
           tags: tags.length > 0 ? tags : undefined
         },
@@ -181,12 +201,11 @@ export function NewContractPage() {
         <h3>Upload Contract</h3>
         <div className="form-grid form-grid-single-column">
           <label>
-            Contract Name
+            Contract Name (optional)
             <input
               value={contractName}
               onChange={(event) => setContractName(event.target.value)}
-              placeholder="Master Services Agreement 2026"
-              required
+              placeholder="Leave blank to use the first file name"
             />
           </label>
           <div className="upload-field">

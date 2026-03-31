@@ -106,6 +106,26 @@ export function ContractsPage() {
   }, [documents]);
 
   const visibleContractIds = useMemo(() => new Set(filteredContracts.map((contract) => contract.id)), [filteredContracts]);
+  const selectedVisibleCount = useMemo(
+    () => filteredContracts.filter((contract) => selectedContractIds.includes(contract.id)).length,
+    [filteredContracts, selectedContractIds]
+  );
+  const allVisibleSelected = filteredContracts.length > 0 && selectedVisibleCount === filteredContracts.length;
+  const selectedDocumentIds = useMemo(
+    () =>
+      documents
+        .filter((document) => document.contract_id && selectedContractIds.includes(document.contract_id))
+        .map((document) => document.id),
+    [documents, selectedContractIds]
+  );
+  const selectableContractCount = useMemo(
+    () => contracts.filter((contract) => representativeDocumentByContract.has(contract.id)).length,
+    [contracts, representativeDocumentByContract]
+  );
+  const unfilteredView =
+    filters.status === "all" && filters.sourceType === "all" && selectedTags.length === 0 && filters.query.trim().length === 0;
+  const allContractsSelected =
+    unfilteredView && selectableContractCount > 0 && selectedContractIds.length === selectableContractCount;
 
   useEffect(() => {
     setSelectedContractIds((prev) => prev.filter((id) => visibleContractIds.has(id)));
@@ -135,11 +155,39 @@ export function ContractsPage() {
       if (prev.includes(contractId)) {
         return prev.filter((id) => id !== contractId);
       }
-      if (prev.length >= 2) {
-        return [prev[1], contractId];
-      }
       return [...prev, contractId];
     });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedContractIds((prev) => {
+      if (allVisibleSelected) {
+        return prev.filter((id) => !visibleContractIds.has(id));
+      }
+
+      const next = new Set(prev);
+      for (const contract of filteredContracts) {
+        if (representativeDocumentByContract.has(contract.id)) {
+          next.add(contract.id);
+        }
+      }
+      return Array.from(next);
+    });
+  };
+
+  const startGuidelineForSelection = () => {
+    const params = new URLSearchParams();
+
+    if (allContractsSelected) {
+      params.set("scope", "all");
+    } else {
+      params.set("scope", "selected");
+      for (const documentId of selectedDocumentIds) {
+        params.append("documentId", documentId);
+      }
+    }
+
+    navigate(`/guidelines/run?${params.toString()}`);
   };
 
   const compareWithSelected = (contractId: string) => {
@@ -189,6 +237,11 @@ export function ContractsPage() {
       <header className="page-header">
         <h2>Contracts</h2>
         <div className="page-actions">
+          {selectedContractIds.length > 0 ? (
+            <button type="button" onClick={startGuidelineForSelection} disabled={selectedDocumentIds.length === 0}>
+              Run Guideline
+            </button>
+          ) : null}
           <button type="button" className="secondary" onClick={compareSelected} disabled={selectedContractIds.length !== 2}>
             Compare Selected
           </button>
@@ -257,7 +310,14 @@ export function ContractsPage() {
             <table>
               <thead>
                 <tr>
-                  <th aria-label="Selection"></th>
+                  <th aria-label="Selection">
+                    <input
+                      type="checkbox"
+                      aria-label={allVisibleSelected ? "Deselect visible contracts" : "Select visible contracts"}
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                    />
+                  </th>
                   <th>Name</th>
                   <th>Files</th>
                   <th>Tags</th>
@@ -271,7 +331,7 @@ export function ContractsPage() {
                     <td>
                       <input
                         type="checkbox"
-                        aria-label={`Select ${contract.name} for comparison`}
+                        aria-label={`Select ${contract.name}`}
                         checked={selectedContractIds.includes(contract.id)}
                         onChange={() => toggleCompareSelection(contract.id)}
                         disabled={!representativeDocumentByContract.has(contract.id)}

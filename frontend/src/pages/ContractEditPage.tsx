@@ -1,4 +1,4 @@
-import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   apiClient,
@@ -8,6 +8,36 @@ import {
   type DocumentTextResponse
 } from "../api/client";
 import { formatEuropeanDateTime } from "../app/datetime";
+import { readLocalJson, writeLocalJson } from "../app/localState";
+
+const CONTRACT_TEXT_SETTINGS_KEY = "ldi.contractTextSettings";
+const DEFAULT_TEXT_FONT_SIZE = 1.12;
+const DEFAULT_TEXT_LINE_HEIGHT = 1.82;
+
+type ContractTextSettings = {
+  fontSize: number;
+  lineHeight: number;
+};
+
+function readContractTextSettings(): ContractTextSettings {
+  return readLocalJson<ContractTextSettings>(CONTRACT_TEXT_SETTINGS_KEY, {
+    fontSize: DEFAULT_TEXT_FONT_SIZE,
+    lineHeight: DEFAULT_TEXT_LINE_HEIGHT
+  });
+}
+
+function formatMimeTypeLabel(mimeType: string): string {
+  switch (mimeType) {
+    case "application/pdf":
+      return "PDF";
+    case "image/jpeg":
+      return "JPEG";
+    case "image/png":
+      return "PNG";
+    default:
+      return mimeType;
+  }
+}
 
 async function toBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -37,7 +67,18 @@ export function ContractEditPage() {
   const [textError, setTextError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [textFontSize, setTextFontSize] = useState(() => readContractTextSettings().fontSize);
+  const [textLineHeight, setTextLineHeight] = useState(() => readContractTextSettings().lineHeight);
   const creationNotice = searchParams.get("notice")?.trim() ?? "";
+
+  const contractTextStyle = useMemo(
+    () =>
+      ({
+        "--contract-text-font-size": `${textFontSize}rem`,
+        "--contract-text-line-height": String(textLineHeight)
+      }) as CSSProperties,
+    [textFontSize, textLineHeight]
+  );
 
   const appendFiles = (incomingFiles: File[]) => {
     if (incomingFiles.length === 0) return;
@@ -66,6 +107,13 @@ export function ContractEditPage() {
     setContractNameInput(contract.name);
     setContractTagsInput((contract.tags ?? []).join(", "));
   }, [contract]);
+
+  useEffect(() => {
+    writeLocalJson<ContractTextSettings>(CONTRACT_TEXT_SETTINGS_KEY, {
+      fontSize: textFontSize,
+      lineHeight: textLineHeight
+    });
+  }, [textFontSize, textLineHeight]);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,18 +355,20 @@ export function ContractEditPage() {
                   <span className="drag-handle">::</span>
                   <span className="order-index">{index + 1}.</span>
                   <span className="file-name">{file.filename}</span>
-                  <span
-                    className={`chip ${
-                      file.status === "indexed"
-                        ? "chip-success"
-                        : file.status === "failed"
-                          ? "chip-danger"
-                          : "chip-warning"
-                    }`}
-                  >
-                    {file.status}
+                  <span className="file-meta">
+                    <span className="file-mime">{formatMimeTypeLabel(file.mime_type)}</span>
+                    <span
+                      className={`chip chip-compact ${
+                        file.status === "indexed"
+                          ? "chip-success"
+                          : file.status === "failed"
+                            ? "chip-danger"
+                            : "chip-warning"
+                      }`}
+                    >
+                      {file.status}
+                    </span>
                   </span>
-                  <span className="chip chip-neutral">{file.mime_type}</span>
                 </div>
               ))}
             </div>
@@ -385,30 +435,60 @@ export function ContractEditPage() {
           {error ? <p className="error-text">{error}</p> : null}
         </div>
 
-        <section className="panel">
-          <h3>Contract Text</h3>
-          <p className="muted">Combined extracted text from all files, shown in reading order.</p>
+        <section className="panel contract-text-panel" style={contractTextStyle}>
+          <div className="contract-text-panel-header">
+            <div>
+              <h3>Contract Text</h3>
+              <p className="muted">Combined extracted text from all files, shown in reading order.</p>
+            </div>
+            <div className="contract-text-controls" aria-label="Contract text display controls">
+              <label className="contract-text-control">
+                <span>Size {textFontSize.toFixed(2)}rem</span>
+                <input
+                  type="range"
+                  min="0.9"
+                  max="1.5"
+                  step="0.05"
+                  value={textFontSize}
+                  onChange={(event) => setTextFontSize(Number(event.target.value))}
+                />
+              </label>
+              <label className="contract-text-control">
+                <span>Line {textLineHeight.toFixed(2)}</span>
+                <input
+                  type="range"
+                  min="0.9"
+                  max="2.4"
+                  step="0.1"
+                  value={textLineHeight}
+                  onChange={(event) => setTextLineHeight(Number(event.target.value))}
+                />
+              </label>
+            </div>
+          </div>
           {textLoading ? <p className="muted">Loading contract text...</p> : null}
           {textError ? <p className="error-text">{textError}</p> : null}
           {!textLoading && !textError ? (
-            <article className="word-document-view">
+            <>
               {files.length === 0 ? <p className="muted">No files yet, so there is no text to show.</p> : null}
               {files.map((file, index) => {
                 const entry = documentTexts[file.id];
                 return (
                   <section key={file.id} className="word-document-section">
-                    <h4>
+                    <div className="word-document-label">
                       {index + 1}. {file.filename}
-                    </h4>
-                    {entry?.has_text ? (
-                      <div className="word-document-text">{entry.text}</div>
-                    ) : (
-                      <p className="muted">No extracted text available for this file yet.</p>
-                    )}
+                    </div>
+                    <article className="word-document-page">
+                      {entry?.has_text ? (
+                        <p className="word-document-text">{entry.text}</p>
+                      ) : (
+                        <p className="muted">No extracted text available for this file yet.</p>
+                      )}
+                    </article>
                   </section>
                 );
               })}
-            </article>
+            </>
           ) : null}
         </section>
       </section>

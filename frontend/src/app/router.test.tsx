@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Navigate, RouterProvider, createMemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,8 +11,52 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     apiClient: {
-      listContracts: vi.fn().mockResolvedValue({ items: [], limit: 200, offset: 0, total: 0 }),
-      listDocuments: vi.fn().mockResolvedValue({ items: [], limit: 200, offset: 0, total: 0 }),
+      listContracts: vi.fn().mockResolvedValue({
+        items: [
+          {
+            id: "contract-1",
+            name: "Alpha",
+            file_count: 1,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z"
+          },
+          {
+            id: "contract-2",
+            name: "Beta",
+            file_count: 1,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z"
+          }
+        ],
+        limit: 200,
+        offset: 0,
+        total: 2
+      }),
+      listDocuments: vi.fn().mockResolvedValue({
+        items: [
+          {
+            id: "doc-1",
+            contract_id: "contract-1",
+            filename: "alpha.pdf",
+            mime_type: "application/pdf",
+            status: "indexed",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z"
+          },
+          {
+            id: "doc-2",
+            contract_id: "contract-2",
+            filename: "beta.pdf",
+            mime_type: "application/pdf",
+            status: "indexed",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z"
+          }
+        ],
+        limit: 200,
+        offset: 0,
+        total: 2
+      }),
       getCheckRun: vi.fn().mockResolvedValue({
         check_id: "00000000-0000-4000-8000-000000000000",
         status: "completed",
@@ -48,10 +92,12 @@ vi.mock("../api/client", async (importOriginal) => {
 });
 import { AppShell } from "./AppShell";
 import { AuditPage } from "../pages/AuditPage";
-import { ChecksPage } from "../pages/ChecksPage";
 import { ContractsPage } from "../pages/ContractsPage";
 import { CompareContractsPage } from "../pages/CompareContractsPage";
 import { DashboardPage } from "../pages/DashboardPage";
+import { GuidelineCreatePage } from "../pages/GuidelineCreatePage";
+import { GuidelineRunPage } from "../pages/GuidelineRunPage";
+import { GuidelinesPage } from "../pages/GuidelinesPage";
 import { NewContractPage } from "../pages/NewContractPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ResultsPage } from "../pages/ResultsPage";
@@ -69,7 +115,9 @@ function renderAt(path: string) {
           { path: "contracts", element: <ContractsPage /> },
           { path: "contracts/new", element: <NewContractPage /> },
           { path: "contracts/compare", element: <CompareContractsPage /> },
-          { path: "guidelines", element: <ChecksPage /> },
+          { path: "guidelines", element: <GuidelinesPage /> },
+          { path: "guidelines/new", element: <GuidelineCreatePage /> },
+          { path: "guidelines/run", element: <GuidelineRunPage /> },
           { path: "checks", element: <Navigate to="/guidelines" replace /> },
           { path: "results", element: <ResultsPage /> },
           { path: "audit", element: <AuditPage /> }
@@ -101,8 +149,39 @@ describe("router", () => {
     renderAt("/guidelines");
 
     expect(screen.getByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
-    expect(screen.getByText("New Guideline Run")).toBeVisible();
-    expect(screen.getByText("Past Guideline Runs")).toBeVisible();
+    expect(screen.getByText("Rules")).toBeVisible();
+    expect(screen.getByText("Executions")).toBeVisible();
+    expect(screen.getByRole("link", { name: "New Rule" })).toHaveAttribute("href", "/guidelines/new");
+  });
+
+  it("renders dedicated guideline creation route", () => {
+    renderAt("/guidelines/new");
+
+    expect(screen.getByRole("heading", { level: 2, name: "New Guideline Rule" })).toBeVisible();
+    expect(screen.getByText("Rule Details")).toBeVisible();
+    expect(screen.getByLabelText("Rule Name")).toBeVisible();
+    expect(screen.getByLabelText("Rule Instructions")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back to Guidelines" })).toHaveAttribute("href", "/guidelines");
+  });
+
+  it("renders dedicated guideline execution route", () => {
+    renderAt("/guidelines/run");
+
+    expect(screen.getByRole("heading", { level: 2, name: "Run Guideline" })).toBeVisible();
+  });
+
+  it("opens guideline creation from selected contracts", async () => {
+    renderAt("/contracts");
+
+    const alphaCheckbox = await screen.findByRole("checkbox", { name: "Select Alpha" });
+    fireEvent.click(alphaCheckbox);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Run Guideline" }));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Run Guideline" })).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Scope")).toHaveValue("selected");
+    });
   });
 
   it("redirects legacy checks route to guidelines", async () => {
@@ -115,7 +194,7 @@ describe("router", () => {
     renderAt("/results?checkId=00000000-0000-4000-8000-000000000000");
 
     expect(await screen.findByRole("heading", { level: 2, name: "Guidelines" })).toBeVisible();
-    expect(screen.getByText("Past Guideline Runs")).toBeVisible();
+    expect(screen.getByText("Executions")).toBeVisible();
   });
 
   it("renders not found route for unknown paths", () => {
