@@ -70,24 +70,20 @@ This process is currently semi-manual, slow, and hard to scale.
 5. As a Legal Reviewer, I ask cross-contract questions from the contracts list and apply returned result IDs back into the table so I can iteratively narrow the working set.
 6. As a Platform Engineer, I inspect pipeline failures (OCR/indexing/API) so I can resolve issues fast.
 
-### ✨ Feature List (MVP)
-- Document ingest (PDF/JPEG)
+### ✨ Features
+- [Document Ingestion](./docs/document-ingestion.md)
 - OCR + text extraction pipeline
-- Clause-presence checks
+- [Contract Comparison](./docs/contract-comparison.md)
+- [Contracts RAG Assistant](./docs/contracts-rag-assistant.md)
+- [Clause-Presence Checks](./docs/clause-presence-checks.md)
 - Gemini contract review
 - Strict keyword checks
-- Contract comparison
 - Contracts RAG assistant with interactive result sets
 - Result confidence + evidence snippets
 - Check run history
 - External REST API copy storage + status
 - Basic audit logging
 
-### 📚 Feature Specs
-- [Document Ingestion](./docs/document-ingestion.md)
-- [Contract Comparison](./docs/contract-comparison.md)
-- [Contracts RAG Assistant](./docs/contracts-rag-assistant.md)
-- [Clause-Presence Checks](./docs/clause-presence-checks.md)
 
 ### 🔭 Non-MVP (Phase 2)
 - GraphRAG for relationship-heavy multi-hop legal reasoning
