@@ -445,25 +445,33 @@ Endpoints:
 
 ```mermaid
 erDiagram
-    DOCUMENTS {
+    CONTRACTS {
         uuid id PK
+        string name
         string source_type
         string source_ref
-        string filename
-        string mime_type
-        string storage_uri
-        bool ocr_required
-        string status
+        jsonb tags
         timestamp created_at
         timestamp updated_at
     }
 
-    DOCUMENT_VERSIONS {
+    DOCUMENTS {
         uuid id PK
-        uuid document_id FK
-        string version_label
+        uuid contract_id FK
+        string source_type
+        string source_ref
+        jsonb tags
+        string filename
+        string mime_type
+        string storage_uri
+        string storage_key
+        bool ocr_required
+        string status
         string checksum
+        string extracted_text
+        int file_order
         timestamp created_at
+        timestamp updated_at
     }
 
     CHECK_RUNS {
@@ -472,8 +480,17 @@ erDiagram
         jsonb input_payload
         string requested_by
         string status
+        timestamp requested_at
         timestamp started_at
         timestamp finished_at
+        string failure_reason
+        timestamp created_at
+    }
+
+    CHECK_RUN_DOCUMENTS {
+        uuid check_run_id FK
+        uuid document_id FK
+        int position
     }
 
     CHECK_RESULTS {
@@ -489,14 +506,17 @@ erDiagram
     EVIDENCE_SNIPPETS {
         uuid id PK
         uuid check_result_id FK
-        string chunk_id
         int page_number
+        string chunk_ref
         string snippet_text
-        numeric score
+        float score
+        timestamp created_at
     }
 
     AUDIT_EVENTS {
         uuid id PK
+        string actor_type
+        string actor_id
         string event_type
         string entity_type
         uuid entity_id
@@ -507,29 +527,66 @@ erDiagram
     EXTERNAL_COPY_EVENTS {
         uuid id PK
         uuid document_id FK
-        string endpoint
-        string request_id
-        int status_code
+        string target_system
+        jsonb request_payload
+        jsonb response_payload
         string status
+        string error_message
+        int attempts
         timestamp created_at
+        timestamp updated_at
     }
 
-    DOCUMENTS ||--o{ DOCUMENT_VERSIONS : has_versions
+    INDEXED_DOCUMENT_CHUNKS {
+        string document_id PK
+        string checksum PK
+        int chunk_id PK
+        int page_number
+        string snippet_text
+        tsvector search_vector
+        timestamp updated_at
+    }
+
+    IDEMPOTENCY_KEYS {
+        string idempotency_key PK
+        uuid check_run_id FK
+        string payload_hash
+    }
+
+    CONTRACTS ||--o{ DOCUMENTS : contains
+    DOCUMENTS ||--o{ CHECK_RUN_DOCUMENTS : queued_for
     DOCUMENTS ||--o{ CHECK_RESULTS : appears_in
     DOCUMENTS ||--o{ EXTERNAL_COPY_EVENTS : copied_to_external
+    DOCUMENTS ||--o{ INDEXED_DOCUMENT_CHUNKS : indexed_as
     CHECK_RUNS ||--o{ CHECK_RESULTS : produces
+    CHECK_RUNS ||--o{ CHECK_RUN_DOCUMENTS : scopes
+    CHECK_RUNS ||--|| IDEMPOTENCY_KEYS : deduplicated_by
     CHECK_RESULTS ||--o{ EVIDENCE_SNIPPETS : supports
 ```
 
+- `contracts`
+  - `id (uuid, pk)`
+  - `name`
+  - `source_type`
+  - `source_ref`
+  - `tags (jsonb)`
+  - `created_at`, `updated_at`
+
 - `documents`
   - `id (uuid, pk)`
+  - `contract_id (fk, nullable)`
   - `source_type` (sharepoint_upload/manual)
   - `source_ref`
+  - `tags (jsonb)`
   - `filename`
   - `mime_type`
   - `storage_uri`
+  - `storage_key`
   - `ocr_required (bool)`
   - `status` (ingested/processing/indexed/failed)
+  - `checksum`
+  - `extracted_text`
+  - `file_order`
   - `created_at`, `updated_at`
 
 - `check_runs`
@@ -538,7 +595,14 @@ erDiagram
   - `input_payload (jsonb)`
   - `requested_by`
   - `status` (queued/running/completed/failed)
-  - `started_at`, `finished_at`
+  - `requested_at`, `started_at`, `finished_at`
+  - `failure_reason`
+  - `created_at`
+
+- `check_run_documents`
+  - `check_run_id (fk)`
+  - `document_id (fk)`
+  - `position`
 
 - `check_results`
   - `id (uuid, pk)`
@@ -552,13 +616,16 @@ erDiagram
 - `evidence_snippets`
   - `id (uuid, pk)`
   - `check_result_id (fk)`
-  - `chunk_id`
   - `page_number`
+  - `chunk_ref`
   - `snippet_text`
   - `score`
+  - `created_at`
 
 - `audit_events`
   - `id (uuid, pk)`
+  - `actor_type`
+  - `actor_id`
   - `event_type`
   - `entity_type`
   - `entity_id`
@@ -568,11 +635,25 @@ erDiagram
 - `external_copy_events`
   - `id (uuid, pk)`
   - `document_id (fk)`
-  - `endpoint`
-  - `request_id`
-  - `status_code`
-  - `status` (success/failed)
-  - `created_at`
+  - `target_system`
+  - `request_payload (jsonb)`
+  - `response_payload (jsonb, nullable)`
+  - `status` (queued/succeeded/failed)
+  - `error_message`
+  - `attempts`
+  - `created_at`, `updated_at`
+
+- `indexed_document_chunks`
+  - `document_id`, `checksum`, `chunk_id` (composite pk)
+  - `page_number`
+  - `snippet_text`
+  - `search_vector` (generated tsvector)
+  - `updated_at`
+
+- `idempotency_keys`
+  - `idempotency_key (pk)`
+  - `check_run_id (fk)`
+  - `payload_hash`
 
 ### ♻️ Data Lifecycle
 - Raw file retained in blob storage.
