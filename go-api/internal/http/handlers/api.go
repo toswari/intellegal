@@ -360,6 +360,22 @@ type contractSearchResponse struct {
 	Items []contractSearchResultItem `json:"items"`
 }
 
+type contractSearchChatRequest struct {
+	Messages    []contractChatMessageRequest `json:"messages"`
+	DocumentIDs []string                     `json:"document_ids,omitempty"`
+	Strategy    string                       `json:"strategy,omitempty"`
+	Limit       int                          `json:"limit,omitempty"`
+}
+
+type contractSearchChatResultItemResponse struct {
+	ContractID   string  `json:"contract_id,omitempty"`
+	DocumentID   string  `json:"document_id"`
+	ContractName string  `json:"contract_name,omitempty"`
+	Filename     string  `json:"filename,omitempty"`
+	Score        float64 `json:"score"`
+	SnippetText  string  `json:"snippet_text,omitempty"`
+}
+
 type contractChatMessageRequest struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -371,14 +387,16 @@ type contractChatRequest struct {
 
 type contractChatCitationResponse struct {
 	DocumentID  string `json:"document_id"`
+	ContractID  string `json:"contract_id,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	SnippetText string `json:"snippet_text"`
 	Reason      string `json:"reason,omitempty"`
 }
 
 type contractChatResponse struct {
-	Answer    string                         `json:"answer"`
-	Citations []contractChatCitationResponse `json:"citations,omitempty"`
+	Answer    string                                 `json:"answer"`
+	Citations []contractChatCitationResponse         `json:"citations,omitempty"`
+	Results   []contractSearchChatResultItemResponse `json:"results,omitempty"`
 }
 
 type errorEnvelope struct {
