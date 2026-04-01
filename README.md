@@ -2,6 +2,13 @@
 
 # IntelLegal - Legal Document Intelligence Platform
 
+[![monorepo](https://img.shields.io/badge/repo-monorepo-1f2937?logo=github)](./README.md)
+[![frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20TypeScript-61DAFB?logo=react&logoColor=white)](./frontend/package.json)
+[![api](https://img.shields.io/badge/api-Go%20REST-00ADD8?logo=go&logoColor=white)](./go-api/go.mod)
+[![ai-api](https://img.shields.io/badge/ai%20pipeline-Python%20%2B%20FastAPI-009688?logo=fastapi&logoColor=white)](./py-ai-api/pyproject.toml)
+[![data](https://img.shields.io/badge/data-Postgres%20%7C%20Qdrant%20%7C%20MinIO-336791?logo=postgresql&logoColor=white)](./README.md#-architecture)
+[![infra](https://img.shields.io/badge/infra-Docker%20%2B%20Terraform-2496ED?logo=docker&logoColor=white)](./infra/terraform/README.md)
+[![llm](https://img.shields.io/badge/llm-Google%20Gemini-4285F4?logo=google&logoColor=white)](./README.md#-stack-decision)
 [![codecov](https://codecov.io/gh/tot-ra/intellegal/graph/badge.svg?token=SXSCERIZWB)](https://codecov.io/gh/tot-ra/intellegal)
 
 
