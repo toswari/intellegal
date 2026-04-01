@@ -35,6 +35,7 @@ func New(
 		r.Post("/", api.CreateContract)
 		r.Get("/", api.ListContracts)
 		r.Post("/search", api.SearchContracts)
+		r.Post("/search/chat", api.ChatContractSearch)
 		r.Route("/{contract_id}", func(r chi.Router) {
 			r.Get("/", api.GetContract)
 			r.Patch("/", api.UpdateContract)

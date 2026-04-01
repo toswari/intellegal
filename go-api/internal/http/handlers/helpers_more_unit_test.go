@@ -244,28 +244,28 @@ func TestContractChatDocuments_ReturnsExpectedValidationErrors(t *testing.T) {
 	api := NewAPI(noopLogger{}, nil, nil, nil)
 
 	// act
-	_, err := api.contractChatDocuments("contract-1")
+	_, err := api.contractChatDocuments(context.Background(), "contract-1")
 
 	// assert
 	assert.ErrorIs(t, err, db.ErrNotConfigured)
 
 	useInMemoryReaders(api)
 
-	_, err = api.contractChatDocuments("missing")
+	_, err = api.contractChatDocuments(context.Background(), "missing")
 	require.EqualError(t, err, "contract not found")
 
 	contractID := "00000000-0000-4000-8000-000000000101"
 	now := time.Now().UTC()
 	api.contracts[contractID] = contract{ID: contractID, FileIDs: nil, CreatedAt: now, UpdatedAt: now}
 
-	_, err = api.contractChatDocuments(contractID)
+	_, err = api.contractChatDocuments(context.Background(), contractID)
 	require.EqualError(t, err, "no contract files")
 
 	documentID := "00000000-0000-4000-8000-000000000102"
 	api.contracts[contractID] = contract{ID: contractID, FileIDs: []string{documentID}, CreatedAt: now, UpdatedAt: now}
 	api.documents[documentID] = document{ID: documentID, Filename: "empty.pdf", ExtractedText: "   "}
 
-	_, err = api.contractChatDocuments(contractID)
+	_, err = api.contractChatDocuments(context.Background(), contractID)
 	require.EqualError(t, err, "no extracted text")
 }
 
@@ -289,7 +289,7 @@ func TestContractChatDocuments_TrimsAndFiltersDocuments(t *testing.T) {
 	api.documents[secondDocumentID] = document{ID: secondDocumentID, Filename: "blank.pdf", ExtractedText: ""}
 
 	// act
-	documents, err := api.contractChatDocuments(contractID)
+	documents, err := api.contractChatDocuments(context.Background(), contractID)
 	require.NoError(t, err)
 
 	// assert

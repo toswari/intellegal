@@ -36,8 +36,11 @@ type stubDocumentStore struct {
 
 type searchCapturingAIClient struct {
 	req            ai.SearchSectionsRequest
+	searchRequests []ai.SearchSectionsRequest
 	ctx            context.Context
 	searchResponse ai.SearchSectionsResult
+	chatReq        ai.ContractChatRequest
+	chatResponse   ai.ContractChatResult
 }
 
 func (s *searchCapturingAIClient) AnalyzeClause(context.Context, ai.AnalyzeClauseRequest) (ai.AnalysisResult, error) {
@@ -48,8 +51,21 @@ func (s *searchCapturingAIClient) AnalyzeLLMReview(context.Context, ai.AnalyzeLL
 	return ai.AnalysisResult{}, nil
 }
 
-func (s *searchCapturingAIClient) ContractChat(context.Context, ai.ContractChatRequest) (ai.ContractChatResult, error) {
-	return ai.ContractChatResult{}, nil
+func (s *searchCapturingAIClient) ContractChat(_ context.Context, req ai.ContractChatRequest) (ai.ContractChatResult, error) {
+	s.chatReq = req
+	if s.chatResponse.Answer != "" || len(s.chatResponse.Citations) > 0 {
+		return s.chatResponse, nil
+	}
+	return ai.ContractChatResult{
+		Answer: "Search-backed answer.",
+		Citations: []ai.ContractChatCitation{
+			{
+				DocumentID:  req.Documents[0].DocumentID,
+				SnippetText: "payment terms apply",
+				Reason:      "Supports the answer",
+			},
+		},
+	}, nil
 }
 
 func (s *searchCapturingAIClient) Extract(context.Context, ai.ExtractRequest) (ai.ExtractResult, error) {
@@ -63,6 +79,7 @@ func (s *searchCapturingAIClient) Index(context.Context, ai.IndexRequest) (ai.In
 func (s *searchCapturingAIClient) SearchSections(ctx context.Context, req ai.SearchSectionsRequest) (ai.SearchSectionsResult, error) {
 	s.ctx = ctx
 	s.req = req
+	s.searchRequests = append(s.searchRequests, req)
 	if len(s.searchResponse.Items) > 0 {
 		return s.searchResponse, nil
 	}
@@ -886,6 +903,91 @@ func TestSearchContracts_PropagatesRequestContext(t *testing.T) {
 	// assert
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "trace-123", aiClient.ctx.Value(ctxKey("trace_id")))
+}
+
+func TestChatContractSearch_UsesLatestUserMessageForRetrievalAndSelectedDocuments(t *testing.T) {
+	aiClient := &searchCapturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	useInMemoryReaders(api)
+	now := time.Now().UTC()
+	documentID := "00000000-0000-4000-8000-000000000081"
+	contractID := "00000000-0000-4000-8000-000000000082"
+
+	api.contracts[contractID] = contract{
+		ID:        contractID,
+		Name:      "Alpha",
+		FileIDs:   []string{documentID},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	api.documents[documentID] = document{
+		ID:            documentID,
+		ContractID:    contractID,
+		Filename:      "alpha.pdf",
+		ExtractedText: "Alpha contract payment terms apply with net 30 days.",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search/chat", map[string]any{
+		"messages": []map[string]string{
+			{"role": "user", "content": "Show me payment terms"},
+			{"role": "assistant", "content": "Looking at matches."},
+			{"role": "user", "content": "Only strict matches please"},
+		},
+		"document_ids": []string{documentID},
+		"limit":        3,
+	}, api.ChatContractSearch)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Len(t, aiClient.searchRequests, 2)
+	assert.Equal(t, "Only strict matches please", aiClient.searchRequests[0].QueryText)
+	assert.Equal(t, []string{documentID}, aiClient.searchRequests[0].DocumentIDs)
+	assert.Equal(t, "strict", aiClient.searchRequests[0].Strategy)
+	assert.Equal(t, "semantic", aiClient.searchRequests[1].Strategy)
+	assert.Equal(t, "search-results", aiClient.chatReq.ContractID)
+	require.Len(t, aiClient.chatReq.Documents, 1)
+	assert.Equal(t, documentID, aiClient.chatReq.Documents[0].DocumentID)
+	assert.Contains(t, aiClient.chatReq.Documents[0].Text, "Alpha contract payment terms apply")
+
+	var body contractChatResponse
+	decodeJSONBodyInto(t, resp, &body)
+	assert.Equal(t, "Search-backed answer.", body.Answer)
+	require.Len(t, body.Citations, 1)
+	assert.Equal(t, contractID, body.Citations[0].ContractID)
+	assert.Equal(t, "alpha.pdf", body.Citations[0].Filename)
+	require.Len(t, body.Results, 1)
+	assert.Equal(t, contractID, body.Results[0].ContractID)
+	assert.Equal(t, "Alpha", body.Results[0].ContractName)
+	assert.Equal(t, documentID, body.Results[0].DocumentID)
+}
+
+func TestChatContractSearch_IgnoresLegacyStrategyOverrideAndStillRunsAutonomousRetrieval(t *testing.T) {
+	aiClient := &searchCapturingAIClient{}
+	api := NewAPI(noopLogger{}, aiClient, nil, nil)
+	useInMemoryReaders(api)
+	now := time.Now().UTC()
+	documentID := "00000000-0000-4000-8000-000000000083"
+
+	api.documents[documentID] = document{
+		ID:            documentID,
+		Filename:      "alpha.pdf",
+		ExtractedText: "Payment terms apply.",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	resp := performJSONRequest(t, http.MethodPost, "/api/v1/contracts/search/chat", map[string]any{
+		"messages": []map[string]string{
+			{"role": "user", "content": "payment terms"},
+		},
+		"strategy": "hybrid",
+	}, api.ChatContractSearch)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Len(t, aiClient.searchRequests, 2)
+	assert.Equal(t, "strict", aiClient.searchRequests[0].Strategy)
+	assert.Equal(t, "semantic", aiClient.searchRequests[1].Strategy)
 }
 
 type errorResponse struct {

@@ -170,14 +170,32 @@ export type ContractChatRequest = {
 
 export type ContractChatCitation = {
   document_id: string;
+  contract_id?: string;
   filename?: string;
   snippet_text: string;
   reason?: string;
 };
 
+export type ContractSearchChatResultItem = {
+  contract_id?: string;
+  document_id: string;
+  contract_name?: string;
+  filename?: string;
+  score: number;
+  snippet_text?: string;
+};
+
 export type ContractChatResponse = {
   answer: string;
   citations: ContractChatCitation[];
+  results: ContractSearchChatResultItem[];
+};
+
+export type ContractSearchChatRequest = {
+  messages: ContractChatMessage[];
+  strategy?: "semantic" | "strict";
+  document_ids?: string[];
+  limit?: number;
 };
 
 export type RequestOptions = {
@@ -421,6 +439,18 @@ export class ApiClient {
     return this.request<ContractChatResponse>(
       "POST",
       `/api/v1/contracts/${encodeURIComponent(contractId)}/chat`,
+      body,
+      options,
+    );
+  }
+
+  chatWithContractSearch(
+    body: ContractSearchChatRequest,
+    options?: RequestOptions,
+  ) {
+    return this.request<ContractChatResponse>(
+      "POST",
+      "/api/v1/contracts/search/chat",
       body,
       options,
     );
