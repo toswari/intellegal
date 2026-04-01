@@ -17,6 +17,9 @@ import (
 	"legal-doc-intel/go-api/internal/http/handlers"
 	"legal-doc-intel/go-api/internal/http/router"
 	"legal-doc-intel/go-api/internal/logging"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeAIClient struct {
@@ -117,26 +120,19 @@ func TestDocumentAndCheckFlow_CreatesDocumentsAndReturnsCompletedResults(t *test
 		"content_base64": "cGRm",
 		"tags":           []string{"MSA", "finance"},
 	})
-	if docResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", docResp.StatusCode)
-	}
+	require.Equal(t, http.StatusCreated, docResp.StatusCode)
 
 	// Assert
 	var createdDoc map[string]any
 	decodeResponse(t, docResp, &createdDoc)
 	docID := createdDoc["id"].(string)
-	if docID == "" {
-		t.Fatal("expected document id")
-	}
+	require.NotEmpty(t, docID)
 	tags, ok := createdDoc["tags"].([]any)
-	if !ok || len(tags) != 2 {
-		t.Fatalf("expected 2 tags on created document, got %#v", createdDoc["tags"])
-	}
+	require.True(t, ok)
+	assert.Len(t, tags, 2)
 
 	listResp := get(t, ts.URL+"/api/v1/documents")
-	if listResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", listResp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
 
 	checkPayload := map[string]any{
 		"document_ids":         []string{docID},
@@ -144,46 +140,148 @@ func TestDocumentAndCheckFlow_CreatesDocumentsAndReturnsCompletedResults(t *test
 	}
 
 	checkResp1 := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
-	if checkResp1.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d", checkResp1.StatusCode)
-	}
+	require.Equal(t, http.StatusAccepted, checkResp1.StatusCode)
 
 	var accepted1 map[string]any
 	decodeResponse(t, checkResp1, &accepted1)
 	checkID := accepted1["check_id"].(string)
 
 	checkResp2 := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", checkPayload, map[string]string{"Idempotency-Key": "idem-key-12345"})
-	if checkResp2.StatusCode != http.StatusAccepted {
-		t.Fatalf("expected 202 for idempotent replay, got %d", checkResp2.StatusCode)
-	}
+	require.Equal(t, http.StatusAccepted, checkResp2.StatusCode)
 	var accepted2 map[string]any
 	decodeResponse(t, checkResp2, &accepted2)
-	if accepted2["check_id"].(string) != checkID {
-		t.Fatalf("expected same check id, got %q vs %q", accepted2["check_id"], checkID)
-	}
+	assert.Equal(t, checkID, accepted2["check_id"].(string))
 
 	conflictResp := postJSONWithHeaders(t, ts.URL+"/api/v1/guidelines/clause-presence", map[string]any{
 		"document_ids":         []string{docID},
 		"required_clause_text": "different payload",
 	}, map[string]string{"Idempotency-Key": "idem-key-12345"})
-	if conflictResp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409 for idempotency conflict, got %d", conflictResp.StatusCode)
-	}
+	require.Equal(t, http.StatusConflict, conflictResp.StatusCode)
 
 	waitForCheckStatus(t, ts.URL, checkID, "completed")
 
 	resultsResp := get(t, ts.URL+"/api/v1/guidelines/"+checkID+"/results")
-	if resultsResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 results, got %d", resultsResp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resultsResp.StatusCode)
 
 	var results struct {
 		Items []map[string]any `json:"items"`
 	}
 	decodeResponse(t, resultsResp, &results)
-	if len(results.Items) != 1 {
-		t.Fatalf("expected one result item, got %d", len(results.Items))
+	assert.Len(t, results.Items, 1)
+}
+
+func TestContractLifecycle_ManagesFilesAndOrderingThroughRouter(t *testing.T) {
+	// Arrange
+	log := logging.NewDiscard(logger.New(logger.LoggerConfig{}))
+	api := handlers.NewAPI(log, &fakeAIClient{}, nil, nil)
+	api.EnableInMemoryReadersForTesting()
+	ts := httptest.NewServer(router.New(log, api, nil, []string{"http://localhost:3000"}))
+	defer ts.Close()
+
+	// Act
+	createResp := postJSON(t, ts.URL+"/api/v1/contracts", map[string]any{
+		"name":        "MSA 2026",
+		"source_type": "api",
+		"tags":        []string{"Finance", "MSA"},
+	})
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	var createdContract struct {
+		ID         string   `json:"id"`
+		Name       string   `json:"name"`
+		SourceType string   `json:"source_type"`
+		Tags       []string `json:"tags"`
+		FileCount  int      `json:"file_count"`
 	}
+	decodeResponse(t, createResp, &createdContract)
+	require.NotEmpty(t, createdContract.ID)
+	assert.Equal(t, "MSA 2026", createdContract.Name)
+	assert.Equal(t, "api", createdContract.SourceType)
+	assert.Len(t, createdContract.Tags, 2)
+	assert.Zero(t, createdContract.FileCount)
+
+	firstFileResp := postJSON(t, ts.URL+"/api/v1/contracts/"+createdContract.ID+"/files", map[string]any{
+		"filename":       "main.pdf",
+		"mime_type":      "application/pdf",
+		"content_base64": "cGRm",
+	})
+	require.Equal(t, http.StatusCreated, firstFileResp.StatusCode)
+	var firstFile struct {
+		ID         string `json:"id"`
+		ContractID string `json:"contract_id"`
+		Status     string `json:"status"`
+	}
+	decodeResponse(t, firstFileResp, &firstFile)
+	require.NotEmpty(t, firstFile.ID)
+	assert.Equal(t, createdContract.ID, firstFile.ContractID)
+	assert.Equal(t, "indexed", firstFile.Status)
+
+	secondFileResp := postJSON(t, ts.URL+"/api/v1/contracts/"+createdContract.ID+"/files", map[string]any{
+		"filename":       "appendix.png",
+		"mime_type":      "image/png",
+		"content_base64": "cG5n",
+	})
+	require.Equal(t, http.StatusCreated, secondFileResp.StatusCode)
+	var secondFile struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, secondFileResp, &secondFile)
+	require.NotEmpty(t, secondFile.ID)
+
+	// Assert
+	listResp := get(t, ts.URL+"/api/v1/contracts?limit=10&offset=0")
+	require.Equal(t, http.StatusOK, listResp.StatusCode)
+	var listed struct {
+		Items []struct {
+			ID        string `json:"id"`
+			FileCount int    `json:"file_count"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	decodeResponse(t, listResp, &listed)
+	assert.Equal(t, 1, listed.Total)
+	require.Len(t, listed.Items, 1)
+	assert.Equal(t, createdContract.ID, listed.Items[0].ID)
+	assert.Equal(t, 2, listed.Items[0].FileCount)
+
+	getResp := get(t, ts.URL+"/api/v1/contracts/"+createdContract.ID)
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+	var fetched struct {
+		ID        string `json:"id"`
+		FileCount int    `json:"file_count"`
+		Files     []struct {
+			ID       string `json:"id"`
+			Filename string `json:"filename"`
+			Status   string `json:"status"`
+		} `json:"files"`
+	}
+	decodeResponse(t, getResp, &fetched)
+	assert.Equal(t, createdContract.ID, fetched.ID)
+	assert.Equal(t, 2, fetched.FileCount)
+	require.Len(t, fetched.Files, 2)
+	assert.Equal(t, firstFile.ID, fetched.Files[0].ID)
+	assert.Equal(t, secondFile.ID, fetched.Files[1].ID)
+
+	reorderResp := requestJSON(t, http.MethodPatch, ts.URL+"/api/v1/contracts/"+createdContract.ID+"/files/order", map[string]any{
+		"file_ids": []string{secondFile.ID, firstFile.ID},
+	}, nil)
+	require.Equal(t, http.StatusOK, reorderResp.StatusCode)
+	var reordered struct {
+		Files []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+	}
+	decodeResponse(t, reorderResp, &reordered)
+	require.Len(t, reordered.Files, 2)
+	assert.Equal(t, secondFile.ID, reordered.Files[0].ID)
+	assert.Equal(t, firstFile.ID, reordered.Files[1].ID)
+
+	deleteResp := requestJSON(t, http.MethodDelete, ts.URL+"/api/v1/contracts/"+createdContract.ID, nil, nil)
+	require.Equal(t, http.StatusNoContent, deleteResp.StatusCode)
+	_ = deleteResp.Body.Close()
+
+	missingResp := get(t, ts.URL+"/api/v1/contracts/"+createdContract.ID)
+	assert.Equal(t, http.StatusNotFound, missingResp.StatusCode)
 }
 
 func waitForCheckStatus(t *testing.T, baseURL, checkID, want string) {
@@ -191,9 +289,7 @@ func waitForCheckStatus(t *testing.T, baseURL, checkID, want string) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		resp := get(t, baseURL+"/api/v1/guidelines/"+checkID)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("unexpected status for check: %d", resp.StatusCode)
-		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var body map[string]any
 		decodeResponse(t, resp, &body)
 		if body["status"] == want {
@@ -206,43 +302,46 @@ func waitForCheckStatus(t *testing.T, baseURL, checkID, want string) {
 
 func postJSON(t *testing.T, url string, payload any) *http.Response {
 	t.Helper()
-	return postJSONWithHeaders(t, url, payload, nil)
+	return requestJSON(t, http.MethodPost, url, payload, nil)
 }
 
 func postJSONWithHeaders(t *testing.T, url string, payload any, headers map[string]string) *http.Response {
 	t.Helper()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
+	return requestJSON(t, http.MethodPost, url, payload, headers)
+}
+
+func requestJSON(t *testing.T, method, url string, payload any, headers map[string]string) *http.Response {
+	t.Helper()
+	var body *bytes.Reader
+	if payload == nil {
+		body = bytes.NewReader(nil)
+	} else {
+		data, err := json.Marshal(payload)
+		require.NoError(t, err)
+		body = bytes.NewReader(data)
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
+	req, err := http.NewRequest(method, url, body)
+	require.NoError(t, err)
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return resp
 }
 
 func get(t *testing.T, url string) *http.Response {
 	t.Helper()
 	resp, err := http.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return resp
 }
 
 func decodeResponse(t *testing.T, resp *http.Response, out any) {
 	t.Helper()
 	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
 }

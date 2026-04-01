@@ -3,7 +3,7 @@ name = "py-ai-api"
 version = "0.1.0"
 description = "Internal AI pipeline API for OCR and RAG workflows"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",
   "pillow>=11.0.0,<12.0.0",
